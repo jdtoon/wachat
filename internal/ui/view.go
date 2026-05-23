@@ -26,8 +26,16 @@ type View struct {
 	chatClicks  []widget.Clickable
 	composer    *Composer
 	search      *SearchBar
-	prevNearEnd bool // last frame's "near the end of loaded window" state
+	themeBtn    widget.Clickable // header theme toggle
+	densityBtn  widget.Clickable // header density toggle
+	backBtn     widget.Clickable // narrow-window back button
+	prevNearEnd bool             // last frame's "near the end of loaded window" state
 }
+
+// NarrowWindowDp is the width below which we collapse the two-pane
+// layout into a single pane (sidebar OR conversation, with a back
+// button). From docs/design.md §2.
+const NarrowWindowDp = 760
 
 // NearEndThreshold is the number of rows from the end of the loaded
 // message window at which we fire OnNearEnd to keyset-page older
@@ -69,6 +77,14 @@ type ViewCallbacks struct {
 	// OnJumpToMessage fires when the user clicks a search hit. Caller
 	// resolves it via state.JumpToMessage.
 	OnJumpToMessage func(hit store.SearchHit)
+	// OnToggleTheme fires when the user clicks the theme toggle in the
+	// header. Caller swaps the live Theme and persists the choice.
+	OnToggleTheme func()
+	// OnToggleDensity fires for the density toggle (compact /
+	// comfortable). Caller flips Theme.Density and persists.
+	OnToggleDensity func()
+	// OnBack fires from the narrow-window single-pane back arrow.
+	OnBack func()
 }
 
 // Layout renders the two-pane view: chat list on the left (fixed 300dp),
@@ -97,9 +113,30 @@ func (v *View) Layout(gtx layout.Context, th *Theme, st *State, cb ViewCallbacks
 		}
 	}
 
+	// Header-button clicks → callbacks. Always evaluated; the buttons
+	// are rendered inside the header which may sit on either pane in
+	// the narrow layout.
+	if v.themeBtn.Clicked(gtx) && cb.OnToggleTheme != nil {
+		cb.OnToggleTheme()
+	}
+	if v.densityBtn.Clicked(gtx) && cb.OnToggleDensity != nil {
+		cb.OnToggleDensity()
+	}
+	if v.backBtn.Clicked(gtx) && cb.OnBack != nil {
+		cb.OnBack()
+	}
+
 	// Paint the canvas behind everything so material widgets that don't
 	// fill their backgrounds (most of them) sit on the right surface.
 	paintBackground(gtx, th.Palette.Canvas)
+
+	// Narrow-window single-pane mode: show whichever side the user is
+	// currently focused on. Toggle via the back arrow in the
+	// conversation header.
+	winWidthDp := unit.Dp(gtx.Metric.PxToDp(gtx.Constraints.Max.X))
+	if winWidthDp < NarrowWindowDp {
+		return v.layoutNarrow(gtx, th, st, cb)
+	}
 
 	dims := layout.Flex{Axis: layout.Horizontal}.Layout(gtx,
 		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
@@ -157,6 +194,18 @@ func isNearOldestLoaded(pos layout.Position, total, threshold int) bool {
 	return pos.First <= threshold
 }
 
+// layoutNarrow draws either the sidebar OR the conversation, never
+// both. When no chat is selected we show the sidebar (so the user can
+// pick one); once selected we show the conversation with a back arrow
+// in the header. The user's back-arrow click clears SelectedChat via
+// the OnBack callback.
+func (v *View) layoutNarrow(gtx layout.Context, th *Theme, st *State, cb ViewCallbacks) layout.Dimensions {
+	if st.SelectedChat == "" {
+		return v.layoutSidebar(gtx, th, st, cb)
+	}
+	return v.layoutConversation(gtx, th, st, cb)
+}
+
 // layoutSidebar = search input on top, chat list (or search results
 // overlay if a search is active) below.
 func (v *View) layoutSidebar(gtx layout.Context, th *Theme, st *State, cb ViewCallbacks) layout.Dimensions {
@@ -209,23 +258,73 @@ func (v *View) layoutConversation(gtx layout.Context, th *Theme, st *State, cb V
 	)
 }
 
-// layoutHeader is the conversation header bar (chat name + tiny
-// separator). Stays compact; richer metadata (presence dot, action
-// icons) lands later.
+// layoutHeader is the conversation header bar: optional back arrow
+// (narrow mode), chat name, density toggle, theme toggle. Stays compact.
 func (v *View) layoutHeader(gtx layout.Context, th *Theme, st *State) layout.Dimensions {
 	mat := th.Material()
 	name := headerName(st)
+	winWidthDp := unit.Dp(gtx.Metric.PxToDp(gtx.Constraints.Max.X))
+	showBack := winWidthDp < NarrowWindowDp
+
 	return paintHeaderSurface(gtx, th, func(gtx layout.Context) layout.Dimensions {
 		return layout.Inset{
 			Top: th.Spacing.S, Bottom: th.Spacing.S,
 			Left: th.Spacing.M, Right: th.Spacing.M,
 		}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-			lbl := material.Label(mat, th.Type.Title, name)
-			lbl.Color = th.Palette.TextPrimary
-			lbl.MaxLines = 1
-			return lbl.Layout(gtx)
+			children := []layout.FlexChild{}
+			if showBack {
+				children = append(children, layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+					return v.backBtn.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+						lbl := material.Label(mat, th.Type.Label, "←")
+						lbl.Color = th.Palette.TextSecondary
+						return layout.Inset{Right: th.Spacing.S}.Layout(gtx, lbl.Layout)
+					})
+				}))
+			}
+			children = append(children, layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
+				lbl := material.Label(mat, th.Type.Title, name)
+				lbl.Color = th.Palette.TextPrimary
+				lbl.MaxLines = 1
+				return lbl.Layout(gtx)
+			}))
+			children = append(children,
+				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+					return v.densityBtn.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+						return layoutHeaderIcon(gtx, th, densityGlyph(th.Density))
+					})
+				}),
+				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+					return v.themeBtn.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+						return layoutHeaderIcon(gtx, th, themeGlyph(th.Palette))
+					})
+				}),
+			)
+			return layout.Flex{Axis: layout.Horizontal, Alignment: layout.Middle}.Layout(gtx, children...)
 		})
 	})
+}
+
+// layoutHeaderIcon is a tiny labeled button for the header toggles.
+// Uses single glyphs so the row stays compact and language-neutral.
+func layoutHeaderIcon(gtx layout.Context, th *Theme, glyph string) layout.Dimensions {
+	mat := th.Material()
+	lbl := material.Label(mat, th.Type.Label, glyph)
+	lbl.Color = th.Palette.TextSecondary
+	return layout.Inset{Left: th.Spacing.S, Right: th.Spacing.S}.Layout(gtx, lbl.Layout)
+}
+
+func themeGlyph(p Palette) string {
+	if p.Canvas == DarkPalette.Canvas {
+		return "☀" // currently dark, button switches to light
+	}
+	return "☾" // currently light, button switches to dark
+}
+
+func densityGlyph(d Density) string {
+	if d == DensityCompact {
+		return "≡" // currently compact
+	}
+	return "☰" // currently comfortable
 }
 
 func paintHeaderSurface(gtx layout.Context, th *Theme, w layout.Widget) layout.Dimensions {

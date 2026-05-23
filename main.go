@@ -225,8 +225,42 @@ func run(dbPath string, noConnect bool) error {
 	}
 
 	// Theme. Built from the wachat design tokens (docs/design.md §1).
-	// Dark-mode toggle lands in v0.0.7; for now we boot in light.
-	theme := ui.NewTheme(ui.LightPalette)
+	// Initial palette + density come from settings persisted on the
+	// last toggle; defaults to light + comfortable.
+	theme := loadInitialTheme(ctx, s)
+
+	// OnToggleTheme / OnToggleDensity swap the palette / density on
+	// the existing theme and persist the choice. The Theme value is
+	// what every widget reads each frame, so flipping these takes
+	// effect on the next Invalidate.
+	callbacks.OnToggleTheme = func() {
+		if theme.Palette.Canvas == ui.DarkPalette.Canvas {
+			theme = ui.NewTheme(ui.LightPalette)
+			theme.Density = readDensity(ctx, s)
+			_ = s.SetSetting(ctx, settingsKeyTheme, settingsThemeLight)
+		} else {
+			theme = ui.NewTheme(ui.DarkPalette)
+			theme.Density = readDensity(ctx, s)
+			_ = s.SetSetting(ctx, settingsKeyTheme, settingsThemeDark)
+		}
+		w.Invalidate()
+	}
+	callbacks.OnToggleDensity = func() {
+		if theme.Density == ui.DensityCompact {
+			theme.Density = ui.DensityComfortable
+			_ = s.SetSetting(ctx, settingsKeyDensity, settingsDensityComfortable)
+		} else {
+			theme.Density = ui.DensityCompact
+			_ = s.SetSetting(ctx, settingsKeyDensity, settingsDensityCompact)
+		}
+		w.Invalidate()
+	}
+	callbacks.OnBack = func() {
+		state.SelectedChat = ""
+		state.Messages = nil
+		state.Cursor = store.Cursor{}
+		w.Invalidate()
+	}
 
 	var ops op.Ops
 	for {
@@ -271,6 +305,40 @@ func renderRoot(
 			return view.Layout(gtx, theme, state, callbacks)
 		}),
 	)
+}
+
+// Settings keys + values used by the theme / density toggles. Kept as
+// constants so a typo in main.go won't silently mismatch the persisted
+// value.
+const (
+	settingsKeyTheme           = "ui.theme"
+	settingsKeyDensity         = "ui.density"
+	settingsThemeLight         = "light"
+	settingsThemeDark          = "dark"
+	settingsDensityComfortable = "comfortable"
+	settingsDensityCompact     = "compact"
+)
+
+// loadInitialTheme reads the persisted theme + density preferences
+// from the store and constructs a Theme for the initial frame.
+// Defaults are light + comfortable.
+func loadInitialTheme(ctx context.Context, s *store.Store) *ui.Theme {
+	v, _ := s.GetSetting(ctx, settingsKeyTheme)
+	pal := ui.LightPalette
+	if v == settingsThemeDark {
+		pal = ui.DarkPalette
+	}
+	th := ui.NewTheme(pal)
+	th.Density = readDensity(ctx, s)
+	return th
+}
+
+func readDensity(ctx context.Context, s *store.Store) ui.Density {
+	v, _ := s.GetSetting(ctx, settingsKeyDensity)
+	if v == settingsDensityCompact {
+		return ui.DensityCompact
+	}
+	return ui.DensityComfortable
 }
 
 // drainIncoming folds every pending event into state without blocking.

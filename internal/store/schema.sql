@@ -63,3 +63,10 @@ BEGIN
     INSERT INTO messages_fts(messages_fts, rowid, body) VALUES ('delete', old.id, COALESCE(old.body, ''));
     INSERT INTO messages_fts(rowid, body) VALUES (new.id, COALESCE(new.body, ''));
 END;
+
+-- Settings: tiny key/value table for UI preferences (theme, density,
+-- future sidebar width). Owned by store.GetSetting / SetSetting.
+CREATE TABLE IF NOT EXISTS settings (
+    key   TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+);
