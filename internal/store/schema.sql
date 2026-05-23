@@ -76,3 +76,16 @@ CREATE TABLE IF NOT EXISTS settings (
     key   TEXT PRIMARY KEY,
     value TEXT NOT NULL
 );
+
+-- Reactions: emoji reactions on messages. A reaction is keyed on
+-- (target message wa_id, reacting sender JID); a new reaction with
+-- empty emoji means "remove." emoji is stored as the literal Unicode
+-- glyph (whatsmeow's wire format).
+CREATE TABLE IF NOT EXISTS reactions (
+    target_waid TEXT NOT NULL,
+    sender_jid  TEXT NOT NULL,
+    emoji       TEXT NOT NULL,
+    ts          INTEGER NOT NULL,
+    PRIMARY KEY (target_waid, sender_jid)
+);
+CREATE INDEX IF NOT EXISTS idx_reactions_target ON reactions(target_waid);

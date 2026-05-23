@@ -394,7 +394,8 @@ func (v *View) layoutMessages(gtx layout.Context, th *Theme, st *State) layout.D
 				senderLabel = m.SenderJID
 			}
 		}
-		return layoutBubble(gtx, th, m, group, fromMe, senderLabel)
+		rs := st.Reactions[m.WAID]
+		return layoutBubble(gtx, th, m, group, fromMe, senderLabel, rs)
 	})
 }
 

@@ -38,6 +38,45 @@ func TestBubbleBodyText_RevokedOverridesEverything(t *testing.T) {
 	}
 }
 
+func TestSummarizeReactions_GroupsByEmojiCountDesc(t *testing.T) {
+	rs := []store.Reaction{
+		{TargetWAID: "w1", SenderJID: "a", Emoji: "👍"},
+		{TargetWAID: "w1", SenderJID: "b", Emoji: "❤"},
+		{TargetWAID: "w1", SenderJID: "c", Emoji: "👍"},
+		{TargetWAID: "w1", SenderJID: "d", Emoji: "👍"},
+		{TargetWAID: "w1", SenderJID: "e", Emoji: "❤"},
+	}
+	got := summarizeReactions(rs)
+	if len(got) != 2 {
+		t.Fatalf("len = %d, want 2", len(got))
+	}
+	if got[0].Emoji != "👍" || got[0].Count != 3 {
+		t.Errorf("got[0] = %+v, want 👍 x3", got[0])
+	}
+	if got[1].Emoji != "❤" || got[1].Count != 2 {
+		t.Errorf("got[1] = %+v, want ❤ x2", got[1])
+	}
+}
+
+func TestSummarizeReactions_EmptyOrNil(t *testing.T) {
+	if got := summarizeReactions(nil); got != nil {
+		t.Errorf("nil input: got %+v, want nil", got)
+	}
+	if got := summarizeReactions([]store.Reaction{}); got != nil {
+		t.Errorf("empty input: got %+v, want nil", got)
+	}
+}
+
+func TestSummarizeReactions_SkipsEmptyEmoji(t *testing.T) {
+	got := summarizeReactions([]store.Reaction{
+		{Emoji: ""},
+		{Emoji: "👍"},
+	})
+	if len(got) != 1 || got[0].Emoji != "👍" {
+		t.Errorf("got %+v, want only [👍]", got)
+	}
+}
+
 func TestReceiptGlyph_TruthTable(t *testing.T) {
 	cases := []struct {
 		status string

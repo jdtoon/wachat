@@ -140,6 +140,11 @@ func (h *Handler) Adapter(ctx context.Context, ownJIDFn func() string) whatsmeow
 				h.handleProtocol(ctx, pm)
 				return
 			}
+			// Reactions also ride inside events.Message.
+			if rm := e.Message.GetReactionMessage(); rm != nil {
+				h.handleReaction(ctx, e, rm)
+				return
+			}
 			if err := h.OnMessage(ctx, fromWMMessage(e)); err != nil && h.Logger != nil {
 				h.Logger(err)
 			}

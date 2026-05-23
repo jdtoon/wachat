@@ -3,6 +3,7 @@ package ui
 import (
 	"image"
 	"image/color"
+	"sort"
 	"time"
 
 	"gioui.org/font"
@@ -31,7 +32,10 @@ import (
 // senderLabel, if non-empty, is rendered above the bubble for the
 // head of a sender group (or solo bubble) — used by group chats to
 // distinguish participants. Pass "" for 1:1 chats.
-func layoutBubble(gtx layout.Context, th *Theme, m store.Message, group GroupPosition, fromMe bool, senderLabel string) layout.Dimensions {
+//
+// reactions is the set of reactions on this message; pass nil for
+// none. The bubble renders a chip cluster below the meta row.
+func layoutBubble(gtx layout.Context, th *Theme, m store.Message, group GroupPosition, fromMe bool, senderLabel string, reactions []store.Reaction) layout.Dimensions {
 	mat := th.Material()
 	bg := th.Palette.BubbleRecv
 	align := layout.W
@@ -108,6 +112,14 @@ func layoutBubble(gtx layout.Context, th *Theme, m store.Message, group GroupPos
 							return layoutBubbleMeta(gtx, th, m, fromMe)
 						}),
 					)
+					if len(reactions) > 0 {
+						children = append(children,
+							layout.Rigid(layout.Spacer{Height: th.Spacing.XS}.Layout),
+							layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+								return layoutReactions(gtx, th, reactions)
+							}),
+						)
+					}
 					return layout.Flex{Axis: layout.Vertical}.Layout(gtx, children...)
 				})
 			})
@@ -251,6 +263,92 @@ func scaleChan(v uint8, s float64) uint8 {
 		return 255
 	}
 	return uint8(r)
+}
+
+// summarizeReactions groups a slice of reactions by emoji, returning
+// (emoji, count) pairs in count-desc order. Pure for testing.
+func summarizeReactions(rs []store.Reaction) []ReactionTally {
+	if len(rs) == 0 {
+		return nil
+	}
+	counts := make(map[string]int, len(rs))
+	for _, r := range rs {
+		if r.Emoji == "" {
+			continue
+		}
+		counts[r.Emoji]++
+	}
+	if len(counts) == 0 {
+		return nil
+	}
+	out := make([]ReactionTally, 0, len(counts))
+	for e, c := range counts {
+		out = append(out, ReactionTally{Emoji: e, Count: c})
+	}
+	// Stable sort: count desc, then emoji asc.
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Count != out[j].Count {
+			return out[i].Count > out[j].Count
+		}
+		return out[i].Emoji < out[j].Emoji
+	})
+	return out
+}
+
+// ReactionTally is one row of the reaction summary cluster (emoji
+// glyph + how many people reacted with it).
+type ReactionTally struct {
+	Emoji string
+	Count int
+}
+
+// layoutReactions renders the chip cluster: one chip per unique
+// emoji, "👍 3" style. Chips wrap onto multiple lines if the bubble
+// is narrow.
+func layoutReactions(gtx layout.Context, th *Theme, rs []store.Reaction) layout.Dimensions {
+	tallies := summarizeReactions(rs)
+	if len(tallies) == 0 {
+		return layout.Dimensions{}
+	}
+	mat := th.Material()
+	children := make([]layout.FlexChild, 0, len(tallies))
+	for _, t := range tallies {
+		t := t
+		children = append(children, layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+			return layout.Inset{Right: th.Spacing.XS}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+				txt := t.Emoji
+				if t.Count > 1 {
+					txt = t.Emoji + " " + reactionCountText(t.Count)
+				}
+				lbl := material.Label(mat, th.Type.Meta, txt)
+				lbl.Color = th.Palette.TextPrimary
+				return roundedFill(gtx, th.Palette.Surface, th.Radius.Button, func(gtx layout.Context) layout.Dimensions {
+					return layout.Inset{
+						Top: th.Spacing.XXS, Bottom: th.Spacing.XXS,
+						Left: th.Spacing.XS, Right: th.Spacing.XS,
+					}.Layout(gtx, lbl.Layout)
+				})
+			})
+		}))
+	}
+	return layout.Flex{Axis: layout.Horizontal, Alignment: layout.Middle}.Layout(gtx, children...)
+}
+
+// reactionCountText renders the count number — formatCount style but
+// without the cap (reactions can legitimately go above 99 on busy
+// chats; we don't fuss with that).
+func reactionCountText(n int) string {
+	if n <= 0 {
+		return "0"
+	}
+	digits := [4]byte{}
+	i := len(digits)
+	for n > 0 && i > 0 {
+		i--
+		digits[i] = byte('0' + n%10)
+		n /= 10
+	}
+	return string(digits[i:])
 }
 
 // senderLabelColor picks a deterministic hue per sender name so each

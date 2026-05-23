@@ -54,6 +54,11 @@ type State struct {
 	// overlay. Nil = no active search; empty non-nil = "search ran,
 	// no hits."
 	Results SearchResults
+
+	// Reactions on the currently loaded message window, indexed by
+	// target wa_id. Refreshed alongside Messages on SelectChat /
+	// LoadOlder so the bubble layout doesn't hit the DB per row.
+	Reactions map[string][]store.Reaction
 }
 
 // NewState binds the reducer to a store. The store is required even though
@@ -102,7 +107,30 @@ func (st *State) SelectChat(ctx context.Context, jid string) error {
 	st.SelectedChat = jid
 	st.Messages = msgs
 	st.Cursor = next
+	st.reloadReactions(ctx)
 	return nil
+}
+
+// reloadReactions refreshes State.Reactions for the currently loaded
+// Messages window. Single SQL query (IN-clause batched). Cheap on the
+// UI goroutine because the window is bounded (~PageSize × pages
+// loaded).
+func (st *State) reloadReactions(ctx context.Context) {
+	if len(st.Messages) == 0 {
+		st.Reactions = nil
+		return
+	}
+	ids := make([]string, 0, len(st.Messages))
+	for _, m := range st.Messages {
+		if m.WAID != "" {
+			ids = append(ids, m.WAID)
+		}
+	}
+	groups, err := st.store.ReactionsForChat(ctx, ids)
+	if err != nil {
+		return
+	}
+	st.Reactions = groups
 }
 
 // LoadOlder appends the next older page of messages to Messages. Returns
@@ -133,6 +161,7 @@ func (st *State) LoadOlder(ctx context.Context) (int, error) {
 	}
 	st.Messages = append(st.Messages, msgs...)
 	st.Cursor = next
+	st.reloadReactions(ctx)
 	return len(msgs), nil
 }
 
@@ -244,6 +273,7 @@ func (st *State) JumpToMessage(ctx context.Context, hit store.SearchHit) error {
 	st.SelectedChat = hit.ChatJID
 	st.Messages = msgs
 	st.Cursor = next
+	st.reloadReactions(ctx)
 	// Don't clear search results — the user may want to click another hit.
 	return nil
 }
