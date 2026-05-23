@@ -25,6 +25,7 @@ type View struct {
 	msgList     widget.List
 	chatClicks  []widget.Clickable
 	composer    *Composer
+	search      *SearchBar
 	prevNearEnd bool // last frame's "near the end of loaded window" state
 }
 
@@ -36,7 +37,7 @@ const NearEndThreshold = 5
 
 // NewView constructs a View with sensible defaults.
 func NewView() *View {
-	v := &View{composer: NewComposer()}
+	v := &View{composer: NewComposer(), search: NewSearchBar()}
 	v.chatList.Axis = layout.Vertical
 	v.msgList.Axis = layout.Vertical
 	// Messages are rendered newest-at-bottom; default to anchoring the
@@ -62,6 +63,12 @@ type ViewCallbacks struct {
 	// button). body is the trimmed text. Caller wires this to
 	// wa.SendText + state.AddOptimistic.
 	OnSend func(chatJID, body string)
+	// OnSearch fires when the user submits a query in the search bar.
+	// Empty query means "clear results."
+	OnSearch func(query string)
+	// OnJumpToMessage fires when the user clicks a search hit. Caller
+	// resolves it via state.JumpToMessage.
+	OnJumpToMessage func(hit store.SearchHit)
 }
 
 // Layout renders the two-pane view: chat list on the left (fixed 300dp),
@@ -98,7 +105,7 @@ func (v *View) Layout(gtx layout.Context, th *Theme, st *State, cb ViewCallbacks
 		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 			gtx.Constraints.Max.X = gtx.Dp(unit.Dp(300))
 			gtx.Constraints.Min.X = gtx.Constraints.Max.X
-			return v.layoutChatList(gtx, th, st)
+			return v.layoutSidebar(gtx, th, st, cb)
 		}),
 		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 			return verticalDivider(gtx, th.Palette.Divider)
@@ -148,6 +155,22 @@ func isNearOldestLoaded(pos layout.Position, total, threshold int) bool {
 		return false
 	}
 	return pos.First <= threshold
+}
+
+// layoutSidebar = search input on top, chat list (or search results
+// overlay if a search is active) below.
+func (v *View) layoutSidebar(gtx layout.Context, th *Theme, st *State, cb ViewCallbacks) layout.Dimensions {
+	return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
+		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+			return v.search.LayoutInput(gtx, th, cb.OnSearch)
+		}),
+		layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
+			if st.Results != nil {
+				return v.search.LayoutResults(gtx, th, st, cb.OnJumpToMessage)
+			}
+			return v.layoutChatList(gtx, th, st)
+		}),
+	)
 }
 
 func (v *View) layoutChatList(gtx layout.Context, th *Theme, st *State) layout.Dimensions {

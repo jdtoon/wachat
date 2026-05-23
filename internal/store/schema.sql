@@ -35,3 +35,31 @@ CREATE TABLE IF NOT EXISTS chats (
     last_ts INTEGER,
     unread  INTEGER NOT NULL DEFAULT 0
 );
+
+-- Full-text search over message bodies. content='messages' makes this an
+-- "external content" FTS5 table — it does NOT store the body twice; just
+-- the index. The triggers below keep the index in sync with messages.
+--
+-- unicode61 tokenizer handles diacritics + case folding sensibly; the
+-- 'remove_diacritics 2' option means "ç" matches "c", which is what most
+-- users expect from a chat search.
+CREATE VIRTUAL TABLE IF NOT EXISTS messages_fts USING fts5(
+    body,
+    content='messages',
+    content_rowid='id',
+    tokenize='unicode61 remove_diacritics 2'
+);
+
+CREATE TRIGGER IF NOT EXISTS messages_ai AFTER INSERT ON messages
+BEGIN
+    INSERT INTO messages_fts(rowid, body) VALUES (new.id, COALESCE(new.body, ''));
+END;
+CREATE TRIGGER IF NOT EXISTS messages_ad AFTER DELETE ON messages
+BEGIN
+    INSERT INTO messages_fts(messages_fts, rowid, body) VALUES ('delete', old.id, COALESCE(old.body, ''));
+END;
+CREATE TRIGGER IF NOT EXISTS messages_au AFTER UPDATE ON messages
+BEGIN
+    INSERT INTO messages_fts(messages_fts, rowid, body) VALUES ('delete', old.id, COALESCE(old.body, ''));
+    INSERT INTO messages_fts(rowid, body) VALUES (new.id, COALESCE(new.body, ''));
+END;

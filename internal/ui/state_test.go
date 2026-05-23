@@ -338,6 +338,79 @@ func TestAddOptimistic_ValidatesArgs(t *testing.T) {
 	}
 }
 
+// --- Search + JumpToMessage ---
+
+func TestState_SearchPopulatesResults(t *testing.T) {
+	st, s := openState(t)
+	ctx := context.Background()
+	mustInsert(t, s, store.Message{
+		WAID: "w1", ChatJID: "c1", TS: 1000, Body: "the quick brown fox",
+	}, false)
+	mustInsert(t, s, store.Message{
+		WAID: "w2", ChatJID: "c1", TS: 1001, Body: "lazy dog",
+	}, false)
+
+	if err := st.Search(ctx, "quick"); err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+	if len(st.Results) != 1 {
+		t.Errorf("Results = %+v, want 1 hit", st.Results)
+	}
+}
+
+func TestState_SearchEmptyQueryClears(t *testing.T) {
+	st, _ := openState(t)
+	st.Results = make(SearchResults, 5) // simulate prior search
+
+	if err := st.Search(context.Background(), "   "); err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+	if st.Results != nil {
+		t.Errorf("empty query should null Results; got %v", st.Results)
+	}
+}
+
+func TestState_JumpToMessageLoadsWindowCenteredOnAnchor(t *testing.T) {
+	st, s := openState(t)
+	ctx := context.Background()
+	for i := 0; i < 20; i++ {
+		mustInsert(t, s, store.Message{
+			WAID: fmtWA(i), ChatJID: "c1", TS: int64(i + 1), Body: "msg",
+		}, false)
+	}
+	// Find the row id of the 10th-inserted message.
+	var anchorID int64
+	if err := s.DB().QueryRow(
+		`SELECT id FROM messages WHERE wa_id=?`, fmtWA(10),
+	).Scan(&anchorID); err != nil {
+		t.Fatalf("scan: %v", err)
+	}
+
+	hit := store.SearchHit{ChatJID: "c1", MessageID: anchorID}
+	if err := st.JumpToMessage(ctx, hit); err != nil {
+		t.Fatalf("JumpToMessage: %v", err)
+	}
+	if st.SelectedChat != "c1" {
+		t.Errorf("SelectedChat = %q, want c1", st.SelectedChat)
+	}
+	hasAnchor := false
+	for _, m := range st.Messages {
+		if m.ID == anchorID {
+			hasAnchor = true
+		}
+	}
+	if !hasAnchor {
+		t.Error("anchor not in loaded window after JumpToMessage")
+	}
+}
+
+func TestState_JumpToMessageEmptyChatJIDErrors(t *testing.T) {
+	st, _ := openState(t)
+	if err := st.JumpToMessage(context.Background(), store.SearchHit{}); err == nil {
+		t.Error("empty ChatJID: want error")
+	}
+}
+
 func TestAddOptimistic_DedupOnRedelivery(t *testing.T) {
 	st, _ := openState(t)
 	st.SelectedChat = "c1"

@@ -11,6 +11,7 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"strings"
 
 	"github.com/jdtoon/wachat/internal/store"
 	"github.com/jdtoon/wachat/internal/wa"
@@ -48,6 +49,11 @@ type State struct {
 	SelectedChat string
 	Messages     []store.Message // newest-first
 	Cursor       store.Cursor    // next page cursor; zero = nothing loaded
+
+	// Results is the live FTS5 search hit set rendered in the search
+	// overlay. Nil = no active search; empty non-nil = "search ran,
+	// no hits."
+	Results SearchResults
 }
 
 // NewState binds the reducer to a store. The store is required even though
@@ -195,6 +201,51 @@ func (st *State) upsertChatSummary(ev wa.MessageEvent) {
 		LastTS: ev.TS,
 		Unread: unread,
 	})
+}
+
+// SearchResults holds the most recent full-text search result set. A
+// non-nil zero-length slice means "search ran, no hits"; a nil slice
+// means "no active search."
+type SearchResults []store.SearchHit
+
+// Search runs an FTS5 search and stores the results on State. The UI
+// reads State.Results to render the overlay. Empty query clears the
+// results.
+func (st *State) Search(ctx context.Context, query string) error {
+	q := strings.TrimSpace(query)
+	if q == "" {
+		st.Results = nil
+		return nil
+	}
+	hits, err := st.store.Search(ctx, q, SearchLimit)
+	if err != nil {
+		return fmt.Errorf("ui.Search: %w", err)
+	}
+	st.Results = hits
+	return nil
+}
+
+// SearchLimit is the maximum hit count displayed in the search overlay
+// before the user has to refine. 100 keeps the overlay scrollable and
+// the FTS5 query under a few ms.
+const SearchLimit = 100
+
+// JumpToMessage opens the chat containing the hit and loads a window of
+// messages centered on the hit so it appears in the middle of the
+// viewport. Uses store.PageAround for the centered window.
+func (st *State) JumpToMessage(ctx context.Context, hit store.SearchHit) error {
+	if hit.ChatJID == "" {
+		return fmt.Errorf("ui.JumpToMessage: empty ChatJID")
+	}
+	msgs, next, err := st.store.PageAround(ctx, hit.ChatJID, hit.MessageID, PageSize/2, PageSize/2)
+	if err != nil {
+		return fmt.Errorf("ui.JumpToMessage: %w", err)
+	}
+	st.SelectedChat = hit.ChatJID
+	st.Messages = msgs
+	st.Cursor = next
+	// Don't clear search results — the user may want to click another hit.
+	return nil
 }
 
 // AddOptimistic inserts an outgoing message into the view-model and the

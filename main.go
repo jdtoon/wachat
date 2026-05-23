@@ -147,6 +147,16 @@ func run(dbPath string, noConnect bool) error {
 				log.Println("LoadOlder:", err)
 			}
 		},
+		OnSearch: func(query string) {
+			if err := state.Search(ctx, query); err != nil {
+				log.Println("Search:", err)
+			}
+		},
+		OnJumpToMessage: func(hit store.SearchHit) {
+			if err := state.JumpToMessage(ctx, hit); err != nil {
+				log.Println("JumpToMessage:", err)
+			}
+		},
 		OnSend: func(chatJID, body string) {
 			waID := ""
 			ts := time.Now().UnixMilli()

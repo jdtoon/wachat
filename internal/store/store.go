@@ -53,7 +53,42 @@ func Open(ctx context.Context, path string) (*Store, error) {
 		return nil, fmt.Errorf("store: apply schema: %w", err)
 	}
 
+	// Backfill the FTS5 index for any existing rows that predate the
+	// virtual table (e.g. upgrading a v0.0.4 DB to v0.0.5+). Cheap when
+	// already in sync — SELECT count check first to avoid the rebuild
+	// on every open.
+	if err := backfillFTSIfNeeded(ctx, db); err != nil {
+		_ = db.Close()
+		return nil, fmt.Errorf("store: backfill FTS: %w", err)
+	}
+
 	return &Store{db: db}, nil
+}
+
+// backfillFTSIfNeeded re-indexes any messages that exist in the messages
+// table but not in messages_fts. Triggers handle the steady state; this
+// only matters when upgrading from a wachat version that predated FTS5.
+func backfillFTSIfNeeded(ctx context.Context, db *sql.DB) error {
+	var pending int
+	err := db.QueryRowContext(ctx, `
+        SELECT COUNT(*) FROM messages m
+        WHERE NOT EXISTS (SELECT 1 FROM messages_fts WHERE rowid = m.id)
+    `).Scan(&pending)
+	if err != nil {
+		return fmt.Errorf("count missing fts rows: %w", err)
+	}
+	if pending == 0 {
+		return nil
+	}
+	_, err = db.ExecContext(ctx, `
+        INSERT INTO messages_fts(rowid, body)
+        SELECT id, COALESCE(body, '') FROM messages
+        WHERE NOT EXISTS (SELECT 1 FROM messages_fts WHERE rowid = messages.id)
+    `)
+	if err != nil {
+		return fmt.Errorf("backfill: %w", err)
+	}
+	return nil
 }
 
 // Close releases the underlying database handle.
