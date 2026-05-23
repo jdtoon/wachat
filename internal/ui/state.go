@@ -32,8 +32,17 @@ const PageSize = 50
 // currently-loaded window of messages with its keyset cursor. The cursor
 // is the (TS, ID) of the OLDEST loaded message — use it to fetch the next
 // older page (CLAUDE.md §6).
+//
+// Messages are stored newest-first (Messages[0] is the newest); the
+// frame loop iterates them in reverse so the newest renders at the
+// BOTTOM of the message pane (WhatsApp convention, docs/design.md §3).
 type State struct {
 	store *store.Store
+
+	// OwnJID is the JID of the locally paired device. Used by the
+	// bubble layout to decide sent (right-aligned) vs received
+	// (left-aligned). Empty until pairing completes.
+	OwnJID string
 
 	Chats        []ChatSummary
 	SelectedChat string
@@ -130,7 +139,12 @@ func (st *State) LoadOlder(ctx context.Context) (int, error) {
 //     advances; unread bumps for non-FromMe messages.
 //   - Re-sorts the chat list (the affected row may have moved to the top).
 //   - If the message belongs to the currently selected chat, prepends it
-//     onto Messages so the new bubble appears immediately. Dedup on WAID.
+//     onto Messages (which is stored newest-first). Dedup on WAID.
+//
+// Storage is newest-first but the message pane renders index N-1..0 in
+// the layout (so newest sits at the bottom of the viewport) — see
+// view.go layoutMessages. The prepend keeps Messages[0] the newest;
+// the render code does the visual flip.
 //
 // Pure function — does not touch the store. The store row was already
 // persisted by wa.Handler before this method is invoked.

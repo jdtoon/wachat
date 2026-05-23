@@ -12,6 +12,8 @@ import (
 	"gioui.org/unit"
 	"gioui.org/widget"
 	"gioui.org/widget/material"
+
+	"github.com/jdtoon/wachat/internal/store"
 )
 
 // View bundles Gio widget state — anything the layout code retains
@@ -35,6 +37,9 @@ func NewView() *View {
 	v := &View{}
 	v.chatList.Axis = layout.Vertical
 	v.msgList.Axis = layout.Vertical
+	// Messages are rendered newest-at-bottom; default to anchoring the
+	// view to the end so new arrivals are immediately visible.
+	v.msgList.ScrollToEnd = true
 	return v
 }
 
@@ -97,16 +102,10 @@ func (v *View) Layout(gtx layout.Context, th *Theme, st *State, cb ViewCallbacks
 		}),
 	)
 
-	// Pagination trigger: fire on the leading edge of "near end" so we
-	// don't spam OnNearEnd every frame the user lingers in the zone. The
-	// caller's LoadOlder will extend Messages and the next frame will
-	// recompute — false→true transitions only.
-	if cb.OnNearEnd != nil && st.SelectedChat != "" {
-		nearEnd := isNearEnd(v.msgList.Position, len(st.Messages), NearEndThreshold)
-		if nearEnd && !v.prevNearEnd {
-			cb.OnNearEnd()
-		}
-		v.prevNearEnd = nearEnd
+	// Pagination trigger: fire on the leading edge of "the user has
+	// scrolled near the oldest loaded message".
+	if st.SelectedChat != "" {
+		v.checkPagingTrigger(v.msgList.Position, len(st.Messages), cb)
 	} else {
 		v.prevNearEnd = false
 	}
@@ -114,17 +113,35 @@ func (v *View) Layout(gtx layout.Context, th *Theme, st *State, cb ViewCallbacks
 	return dims
 }
 
-// isNearEnd reports whether the list's last visible row sits within
-// threshold rows of the end of the loaded buffer.
+// checkPagingTrigger evaluates the near-oldest-loaded predicate and
+// fires cb.OnNearEnd on the leading edge (false→true) so the caller
+// doesn't see one fire per frame while the user lingers in the zone.
+// Pulled out as a method so it can be unit-tested against synthetic
+// layout.Position values without driving the full View.Layout pass.
+func (v *View) checkPagingTrigger(pos layout.Position, total int, cb ViewCallbacks) {
+	if cb.OnNearEnd == nil {
+		v.prevNearEnd = false
+		return
+	}
+	near := isNearOldestLoaded(pos, total, NearEndThreshold)
+	if near && !v.prevNearEnd {
+		cb.OnNearEnd()
+	}
+	v.prevNearEnd = near
+}
+
+// isNearOldestLoaded reports whether the visible window is within
+// threshold rows of the start of the loaded buffer. Because messages
+// render newest-at-bottom, the start of the layout is the oldest
+// loaded message — scrolling up toward i=0 means "I want more history."
 //
 // Pure function for testability — kept package-private. Position values
 // come from widget.List after a layout pass.
-func isNearEnd(pos layout.Position, total, threshold int) bool {
+func isNearOldestLoaded(pos layout.Position, total, threshold int) bool {
 	if total == 0 || pos.Count == 0 {
 		return false
 	}
-	lastVisible := pos.First + pos.Count
-	return lastVisible >= total-threshold
+	return pos.First <= threshold
 }
 
 func (v *View) layoutChatList(gtx layout.Context, th *Theme, st *State) layout.Dimensions {
@@ -132,23 +149,16 @@ func (v *View) layoutChatList(gtx layout.Context, th *Theme, st *State) layout.D
 	return material.List(mat, &v.chatList).Layout(gtx, len(st.Chats), func(gtx layout.Context, i int) layout.Dimensions {
 		c := st.Chats[i]
 		return v.chatClicks[i].Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-			return layout.Inset{
-				Top: th.RowPad(), Bottom: th.RowPad(),
-				Left: th.Spacing.M, Right: th.Spacing.M,
-			}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-				name := material.Label(mat, th.Type.Title, displayName(c))
-				name.Color = th.Palette.TextPrimary
-				sub := material.Label(mat, th.Type.Meta, chatSubtitle(c))
-				sub.Color = th.Palette.TextSecondary
-				return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
-					layout.Rigid(name.Layout),
-					layout.Rigid(sub.Layout),
-				)
-			})
+			return layoutChatRow(gtx, th, c)
 		})
 	})
 }
 
+// layoutMessages renders the message pane with newest-at-bottom
+// ordering. state.Messages is stored newest-first (driven by the
+// keyset cursor), so we map layout index i to Messages[count-1-i] —
+// i=0 becomes the OLDEST loaded message (top of viewport), i=count-1
+// the NEWEST (bottom of viewport, anchored by ScrollToEnd).
 func (v *View) layoutMessages(gtx layout.Context, th *Theme, st *State) layout.Dimensions {
 	mat := th.Material()
 	if st.SelectedChat == "" {
@@ -156,17 +166,30 @@ func (v *View) layoutMessages(gtx layout.Context, th *Theme, st *State) layout.D
 		empty.Color = th.Palette.TextSecondary
 		return layout.Center.Layout(gtx, empty.Layout)
 	}
-	return material.List(mat, &v.msgList).Layout(gtx, len(st.Messages), func(gtx layout.Context, i int) layout.Dimensions {
-		m := st.Messages[i]
-		return layout.Inset{
-			Top: th.Spacing.XS, Bottom: th.Spacing.XS,
-			Left: th.Spacing.M, Right: th.Spacing.M,
-		}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-			body := material.Label(mat, th.Type.Body, m.Body)
-			body.Color = th.Palette.TextPrimary
-			return body.Layout(gtx)
-		})
+
+	groups := GroupMessages(st.Messages, DefaultGroupWindow)
+	count := len(st.Messages)
+	ownJID := st.OwnJID
+	return material.List(mat, &v.msgList).Layout(gtx, count, func(gtx layout.Context, i int) layout.Dimensions {
+		// Reverse the index so newest sits at the bottom of the viewport.
+		idx := count - 1 - i
+		m := st.Messages[idx]
+		group := groups[idx]
+		fromMe := isFromMe(m, ownJID)
+		return layoutBubble(gtx, th, m, group, fromMe)
 	})
+}
+
+// isFromMe decides whether a message bubble should align right (sent)
+// or left (received). When ownJID is set, compare against the sender;
+// fall back to "empty sender = from me" for compatibility with the
+// seed data and the wa.Handler convention (cmd/seed inserts FromMe
+// messages with SenderJID="").
+func isFromMe(m store.Message, ownJID string) bool {
+	if ownJID != "" {
+		return m.SenderJID == ownJID
+	}
+	return m.SenderJID == ""
 }
 
 // displayName picks the human-readable label for a chat row. Falls back

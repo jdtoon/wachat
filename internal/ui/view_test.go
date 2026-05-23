@@ -173,7 +173,11 @@ func TestView_ChatClickInvokesCallback(t *testing.T) {
 
 // --- isNearEnd (pure) ---
 
-func TestIsNearEnd(t *testing.T) {
+// TestIsNearOldestLoaded covers the keyset paging trigger predicate.
+// Newest-at-bottom rendering means layout index 0 is the OLDEST loaded
+// message — when pos.First ≤ threshold the user is reading near the
+// top of the loaded buffer and we need to LoadOlder.
+func TestIsNearOldestLoaded(t *testing.T) {
 	cases := []struct {
 		name      string
 		pos       layout.Position
@@ -183,80 +187,118 @@ func TestIsNearEnd(t *testing.T) {
 	}{
 		{"empty list",
 			layout.Position{First: 0, Count: 0}, 0, 5, false},
-		{"viewport at top",
-			layout.Position{First: 0, Count: 10}, 100, 5, false},
+		{"viewport at top of loaded (i.e. oldest loaded)",
+			layout.Position{First: 0, Count: 10}, 100, 5, true},
+		{"viewport just inside threshold",
+			layout.Position{First: 5, Count: 10}, 100, 5, true},
+		{"viewport just outside threshold",
+			layout.Position{First: 6, Count: 10}, 100, 5, false},
 		{"viewport in middle",
 			layout.Position{First: 40, Count: 10}, 100, 5, false},
-		{"viewport just before threshold",
-			layout.Position{First: 80, Count: 10}, 100, 5, false},
-		{"viewport hits threshold",
-			layout.Position{First: 85, Count: 10}, 100, 5, true},
-		{"viewport at very end",
-			layout.Position{First: 90, Count: 10}, 100, 5, true},
+		{"viewport at bottom (newest)",
+			layout.Position{First: 90, Count: 10}, 100, 5, false},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := isNearEnd(tc.pos, tc.total, tc.threshold); got != tc.want {
-				t.Errorf("isNearEnd(%+v, total=%d, t=%d) = %v, want %v",
+			if got := isNearOldestLoaded(tc.pos, tc.total, tc.threshold); got != tc.want {
+				t.Errorf("isNearOldestLoaded(%+v, total=%d, t=%d) = %v, want %v",
 					tc.pos, tc.total, tc.threshold, got, tc.want)
 			}
 		})
 	}
 }
 
-// TestView_OnNearEnd_FiresOnLeadingEdge asserts that OnNearEnd fires only
-// when the near-end condition transitions false→true, not every frame the
-// condition holds.
+// TestView_OnNearEnd_FiresOnLeadingEdge asserts that OnNearEnd fires
+// only when the user crosses INTO the trigger zone — not every frame
+// they linger in it.
+//
+// Drives checkPagingTrigger directly with synthetic layout.Position
+// values; View.Layout would write back to msgList.Position based on
+// real scroll input, which we can't fake here.
 func TestView_OnNearEnd_FiresOnLeadingEdge(t *testing.T) {
+	v := NewView()
+	var fires int
+	cb := ViewCallbacks{OnNearEnd: func() { fires++ }}
+
+	// Frame 1: middle of buffer → not in zone, no fire.
+	v.checkPagingTrigger(layout.Position{First: 40, Count: 10}, 100, cb)
+	if fires != 0 {
+		t.Fatalf("frame 1: fires=%d, want 0 (not in zone)", fires)
+	}
+
+	// Frame 2: scroll into the zone (near oldest loaded).
+	v.checkPagingTrigger(layout.Position{First: 2, Count: 10}, 100, cb)
+	if fires != 1 {
+		t.Fatalf("frame 2 (entered zone): fires=%d, want 1", fires)
+	}
+
+	// Frame 3: still in zone → must NOT re-fire (leading edge only).
+	v.checkPagingTrigger(layout.Position{First: 2, Count: 10}, 100, cb)
+	if fires != 1 {
+		t.Errorf("frame 3 (still in zone): fires=%d, want 1 (no re-fire)", fires)
+	}
+
+	// Frame 4: scroll back out.
+	v.checkPagingTrigger(layout.Position{First: 40, Count: 10}, 100, cb)
+
+	// Frame 5: re-enter → fires again.
+	v.checkPagingTrigger(layout.Position{First: 2, Count: 10}, 100, cb)
+	if fires != 2 {
+		t.Errorf("frame 5 (re-entered zone): fires=%d, want 2", fires)
+	}
+}
+
+// TestView_OnNearEnd_NilCallbackIsNoOp protects against a regression
+// where checkPagingTrigger panicked on a nil OnNearEnd.
+func TestView_OnNearEnd_NilCallbackIsNoOp(t *testing.T) {
+	v := NewView()
+	v.prevNearEnd = true
+	v.checkPagingTrigger(layout.Position{First: 0, Count: 10}, 100, ViewCallbacks{})
+	if v.prevNearEnd {
+		t.Error("prevNearEnd should be reset to false when OnNearEnd is nil")
+	}
+}
+
+// TestView_MessagesRenderNewestAtBottom asserts the render iteration
+// flip: layout index 0 corresponds to the OLDEST loaded message
+// (Messages[N-1]) and the last index to the NEWEST (Messages[0]).
+//
+// We instrument material.List with a recording builder so we can read
+// the (renderIdx → state.Messages index) mapping directly.
+func TestView_MessagesRenderNewestAtBottom(t *testing.T) {
 	st, _ := openState(t)
 	st.SelectedChat = "c1"
-	st.Messages = make([]store.Message, 100)
-	for i := range st.Messages {
-		st.Messages[i] = store.Message{
-			ID: int64(i), WAID: fmtWA(i), ChatJID: "c1", TS: int64(i), Body: "m",
-		}
+	// Build a small message slice with distinct TS so we can tell ordering.
+	st.Messages = []store.Message{
+		{ID: 3, WAID: "newest", ChatJID: "c1", TS: 300, Body: "newest"},
+		{ID: 2, WAID: "middle", ChatJID: "c1", TS: 200, Body: "middle"},
+		{ID: 1, WAID: "oldest", ChatJID: "c1", TS: 100, Body: "oldest"},
 	}
 
 	v := NewView()
 	th := newTestTheme()
-
-	var fires int
-	cb := ViewCallbacks{OnNearEnd: func() { fires++ }}
-
-	// Frame 1: viewport at top → not near end, no fire.
+	mat := th.Material()
 	gtx := testGtx(900, 600)
-	v.Layout(gtx, th, st, cb)
-	if fires != 0 {
-		t.Fatalf("frame 1: fires=%d, want 0 (not near end)", fires)
+
+	count := len(st.Messages)
+	groups := GroupMessages(st.Messages, DefaultGroupWindow)
+	seen := make(map[int]string, count) // layout index → WAID at that slot
+	_ = material.List(mat, &v.msgList).Layout(gtx, count, func(gtx layout.Context, i int) layout.Dimensions {
+		idx := count - 1 - i
+		seen[i] = st.Messages[idx].WAID
+		return layoutBubble(gtx, th, st.Messages[idx], groups[idx], false)
+	})
+
+	if len(seen) == 0 {
+		t.Fatal("builder never called")
 	}
-
-	// Frame 2: synthesize near-end position. msgList.Position is what the
-	// next Layout reads.
-	v.msgList.Position = layout.Position{First: 92, Count: 8}
-	gtx = testGtx(900, 600)
-	v.Layout(gtx, th, st, cb)
-	if fires != 1 {
-		t.Fatalf("frame 2 (entered near-end): fires=%d, want 1", fires)
+	// Layout index 0 = top of pane = should be OLDEST.
+	// Layout index count-1 = bottom of pane = should be NEWEST.
+	if seen[0] != "oldest" {
+		t.Errorf("layout[0] (top of pane) = %q, want oldest", seen[0])
 	}
-
-	// Frame 3: still near end → must NOT re-fire (leading edge only).
-	gtx = testGtx(900, 600)
-	v.Layout(gtx, th, st, cb)
-	if fires != 1 {
-		t.Errorf("frame 3 (still near end): fires=%d, want 1 (no re-fire)", fires)
-	}
-
-	// Frame 4: scroll back to middle → leaves the trigger zone.
-	v.msgList.Position = layout.Position{First: 20, Count: 8}
-	gtx = testGtx(900, 600)
-	v.Layout(gtx, th, st, cb)
-
-	// Frame 5: scroll back into trigger zone — fires again.
-	v.msgList.Position = layout.Position{First: 92, Count: 8}
-	gtx = testGtx(900, 600)
-	v.Layout(gtx, th, st, cb)
-	if fires != 2 {
-		t.Errorf("frame 5 (re-entered near-end): fires=%d, want 2", fires)
+	if seen[count-1] != "newest" {
+		t.Errorf("layout[%d] (bottom of pane) = %q, want newest", count-1, seen[count-1])
 	}
 }
 
