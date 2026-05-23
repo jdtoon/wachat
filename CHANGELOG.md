@@ -9,6 +9,49 @@ to [Semantic Versioning][semver].
 
 (nothing yet)
 
+## [0.1.2] - 2026-05-23
+
+### Added
+
+- **History sync persistence.** `events.HistorySync` is now actually
+  stored — `fromWMHistorySync` converts the proto into wachat's
+  flat-message + chat-summary form, `store.InsertBatch` writes
+  thousands of rows in one transaction (FTS5 triggers index along
+  the way), and chats get their display name from the
+  Conversation.Name field with a push-name fallback for unnamed 1:1
+  chats.
+- **Push-name resolution.** `events.PushName` upserts the chats
+  table so the chat list flips from raw JIDs to display names as
+  soon as whatsmeow learns them.
+- New `HistoryPersister` interface (Persister + `InsertBatch` +
+  `UpsertChat`) for the wa-side store contract.
+- `Handler.Adapter(ctx, ownJIDFn)` — the converter for from-me
+  messages in history sync needs the local device JID.
+
+### Tested
+
+- 7 store tests: `InsertBatch` round-trip, dedup, partial skip, no-
+  unread, FTS5 index feed.
+- 12 wa tests: sender truth table, push-name fallback, nil safety,
+  persister-interface enforcement.
+
+## [0.1.1] - 2026-05-23
+
+### Fixed
+
+- **Pairing was silently broken.** `main.go` called
+  `waCli.QRChannel` twice (terminal + window); whatsmeow's QR channel
+  is single-consumer, so the in-window pairing view never received
+  codes. Replaced with a fan-out goroutine.
+- **`state.OwnJID` was stuck empty after fresh pair.** Read once at
+  startup before the device ID was assigned. Now refreshed on
+  `ConnectionConnected`.
+- **Chat list didn't refresh post-pair.** Now reloads on
+  `ConnectionConnected`.
+
+[0.1.2]: https://github.com/jdtoon/wachat/releases/tag/v0.1.2
+[0.1.1]: https://github.com/jdtoon/wachat/releases/tag/v0.1.1
+
 ## [0.1.0] - 2026-05-23
 
 **First minor release.** No new code beyond v0.0.7 — this tag is the
@@ -289,7 +332,7 @@ media-cache framework is ready to wire into the message bubble.
 - `CGO_ENABLED=0` confirmed via `go version -m wachat`
 - UI goroutine never receives DB writes from background goroutines
 
-[unreleased]: https://github.com/jdtoon/wachat/compare/v0.1.0...HEAD
+[unreleased]: https://github.com/jdtoon/wachat/compare/v0.1.2...HEAD
 [0.0.1]: https://github.com/jdtoon/wachat/releases/tag/v0.0.1
 [kac]: https://keepachangelog.com/en/1.1.0/
 [semver]: https://semver.org/spec/v2.0.0.html
