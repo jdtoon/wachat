@@ -9,6 +9,37 @@ to [Semantic Versioning][semver].
 
 (nothing yet)
 
+## [0.1.3] - 2026-05-23
+
+### Added
+
+- **Receipt indicators** in the message bubble meta row (outgoing
+  only): ⏱ pending, ✓ sent, ✓✓ delivered, ✓✓ in accent
+  for read (blue-ticks convention), ✓✓ in accent for played.
+- **`messages.status` column** with values `pending|sent|delivered|
+  read|played`. Migration via `PRAGMA table_info` + `ALTER TABLE` so
+  v0.1.2 DBs upgrade transparently.
+- **`store.UpdateStatus(ctx, waID, status)`** — single mutator for
+  receipt-driven status transitions.
+- **WAID dedup on first arrival.** `wa.GenerateID()` pre-mints a
+  whatsmeow message ID; `wa.SendText(ctx, chatJID, body, msgID)`
+  passes it via `SendRequestExtra.ID`. The optimistic bubble and the
+  server-confirmed receipt now share a row from the start — no more
+  brief double-bubble.
+- **Receipt event handler.** `Handler.OnReceipt` maps
+  `events.Receipt` (with all `types.ReceiptType` constants) into
+  status updates. `StatusUpdater` interface lets fake stores stay
+  narrow in tests.
+
+### Tested
+
+- 6 store status tests (round-trip, unknown WAID, defaults, page-read).
+- 7 receipt tests (full kind→status truth table, multi-ID, nil
+  safety, missing-StatusUpdater).
+- 7-row bubble glyph truth table.
+
+[0.1.3]: https://github.com/jdtoon/wachat/releases/tag/v0.1.3
+
 ## [0.1.2] - 2026-05-23
 
 ### Added
@@ -332,7 +363,7 @@ media-cache framework is ready to wire into the message bubble.
 - `CGO_ENABLED=0` confirmed via `go version -m wachat`
 - UI goroutine never receives DB writes from background goroutines
 
-[unreleased]: https://github.com/jdtoon/wachat/compare/v0.1.2...HEAD
+[unreleased]: https://github.com/jdtoon/wachat/compare/v0.1.3...HEAD
 [0.0.1]: https://github.com/jdtoon/wachat/releases/tag/v0.0.1
 [kac]: https://keepachangelog.com/en/1.1.0/
 [semver]: https://semver.org/spec/v2.0.0.html
