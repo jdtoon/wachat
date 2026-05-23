@@ -41,6 +41,11 @@ type Handler struct {
 	Out    chan<- MessageEvent
 	Notify func()
 	Logger func(error) // called for errors the EventHandler adapter can't return
+	// OnConnState is invoked whenever the wa-layer connection state
+	// changes (Connected / Disconnected / LoggedOut). Optional. When
+	// non-nil and Notify is also set, the UI is woken right after the
+	// callback so the banner repaints promptly.
+	OnConnState func(ConnectionState)
 }
 
 // OnMessage runs the persist → send → notify pipeline for a single event.
@@ -85,10 +90,31 @@ func (h *Handler) OnMessage(ctx context.Context, ev MessageEvent) error {
 	return nil
 }
 
-// Adapter returns a whatsmeow.EventHandler that decodes the events this
-// build understands (*events.Message for now) into MessageEvent and calls
-// OnMessage. Other event types are silently ignored — the broader event
-// surface lands as wachat grows.
+// ConnectionState is wachat's wa-layer view of the network state.
+// Mirrors internal/ui/ConnState so the boundary stays inside the wa
+// package; main.go translates one into the other when wiring the
+// banner.
+type ConnectionState int
+
+const (
+	ConnectionConnected ConnectionState = iota
+	ConnectionConnecting
+	ConnectionDisconnected
+	ConnectionLoggedOut
+)
+
+// OnConnState is a callback fed by Adapter when the wa-layer
+// connection state changes. Set this on Handler to hear about
+// Connected/Disconnected/LoggedOut without subscribing to whatsmeow's
+// events directly.
+//
+// Called from whatsmeow goroutines — keep cheap (CLAUDE.md §4); the
+// banner UI lives on the UI thread and reacts via Notify.
+
+// Adapter returns a whatsmeow.EventHandler that decodes the events
+// this build understands into wachat-local types. Other event types
+// are silently ignored — the broader event surface lands as wachat
+// grows.
 func (h *Handler) Adapter(ctx context.Context) whatsmeow.EventHandler {
 	return func(evt any) {
 		switch e := evt.(type) {
@@ -96,7 +122,33 @@ func (h *Handler) Adapter(ctx context.Context) whatsmeow.EventHandler {
 			if err := h.OnMessage(ctx, fromWMMessage(e)); err != nil && h.Logger != nil {
 				h.Logger(err)
 			}
+		case *events.Connected:
+			h.publishState(ConnectionConnected)
+		case *events.Disconnected:
+			h.publishState(ConnectionDisconnected)
+		case *events.LoggedOut:
+			h.publishState(ConnectionLoggedOut)
+		case *events.PairSuccess:
+			h.publishState(ConnectionConnected)
 		}
+	}
+}
+
+// OnConnState may be set on Handler to receive connection-state
+// updates derived from the events.Connected / events.Disconnected /
+// events.LoggedOut stream. Optional — if nil, state changes are
+// dropped silently.
+//
+// Defined as a field on Handler so we don't break the existing zero-
+// value usage; older callers that only listen for messages keep
+// working unchanged.
+func (h *Handler) publishState(s ConnectionState) {
+	if h == nil || h.OnConnState == nil {
+		return
+	}
+	h.OnConnState(s)
+	if h.Notify != nil {
+		h.Notify()
 	}
 }
 

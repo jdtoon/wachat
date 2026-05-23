@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"gioui.org/app"
+	"gioui.org/layout"
 	"gioui.org/op"
 	"gioui.org/unit"
 
@@ -90,6 +91,14 @@ func run(dbPath string, noConnect bool) error {
 	// optimistic bubble locally.
 	var waSender func(ctx context.Context, chatJID, body string) (waID string, err error)
 
+	// Pairing view + connection-state surface. The frame loop branches
+	// on pairingView.Phase() — when not yet paired we show the linking
+	// screen; PairingReady (set by the wa.Handler's OnConnState path)
+	// switches to the main two-pane view.
+	pairingView := ui.NewPairingView()
+	connState := ui.ConnConnected
+	needsPairing := false
+
 	// whatsmeow client + handler. Skipped in -no-connect mode so the UI
 	// can be exercised offline against the local store.
 	if !noConnect {
@@ -105,6 +114,19 @@ func run(dbPath string, noConnect bool) error {
 			Out:    incoming,
 			Notify: w.Invalidate,
 			Logger: func(err error) { log.Println("wa.Handler:", err) },
+			OnConnState: func(cs wa.ConnectionState) {
+				switch cs {
+				case wa.ConnectionConnected:
+					connState = ui.ConnConnected
+					if needsPairing {
+						pairingView.SetPhase(ui.PairingReady)
+					}
+				case wa.ConnectionDisconnected:
+					connState = ui.ConnDisconnected
+				case wa.ConnectionLoggedOut:
+					connState = ui.ConnLoggedOut
+				}
+			},
 		}
 		waCli.AddEventHandler(handler.Adapter(ctx))
 		waSender = waCli.SendText
@@ -113,11 +135,25 @@ func run(dbPath string, noConnect bool) error {
 		state.OwnJID = waCli.OwnJID()
 
 		if waCli.NeedsPairing() {
+			needsPairing = true
+			connState = ui.ConnConnecting
 			qrCh, err := waCli.QRChannel(ctx)
 			if err != nil {
 				return fmt.Errorf("wa.QRChannel: %w", err)
 			}
 			go renderQRs(qrCh)
+			// Bridge the QR channel into the pairing view too — second
+			// consumer pattern is fine because we own the wrapper that
+			// produced the channel; future cleanup: split into a fan-out.
+			pairingCh, err := waCli.QRChannel(ctx)
+			if err == nil {
+				go func() {
+					for item := range pairingCh {
+						pairingView.HandleQR(item)
+						w.Invalidate()
+					}
+				}()
+			}
 		}
 
 		// Connect off the UI goroutine so the window paints immediately;
@@ -203,10 +239,38 @@ func run(dbPath string, noConnect bool) error {
 			return ev.Err
 		case app.FrameEvent:
 			gtx := app.NewContext(&ops, ev)
-			view.Layout(gtx, theme, state, callbacks)
+			renderRoot(gtx, theme, state, view, callbacks, pairingView, &needsPairing, connState)
 			ev.Frame(gtx.Ops)
 		}
 	}
+}
+
+// renderRoot is the top-level draw routine. Decides whether to show
+// the pairing screen (linking-in-progress) or the main two-pane view,
+// and stacks a connection banner above the main view if we're not OK.
+func renderRoot(
+	gtx layout.Context,
+	theme *ui.Theme,
+	state *ui.State,
+	view *ui.View,
+	callbacks ui.ViewCallbacks,
+	pairing *ui.PairingView,
+	needsPairing *bool,
+	connState ui.ConnState,
+) {
+	if *needsPairing && pairing.Phase() != ui.PairingReady {
+		pairing.Layout(gtx, theme)
+		return
+	}
+	*needsPairing = false
+	layout.Flex{Axis: layout.Vertical}.Layout(gtx,
+		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+			return ui.LayoutConnectionBanner(gtx, theme, connState)
+		}),
+		layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
+			return view.Layout(gtx, theme, state, callbacks)
+		}),
+	)
 }
 
 // drainIncoming folds every pending event into state without blocking.

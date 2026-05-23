@@ -48,7 +48,37 @@ func New(ctx context.Context, dbPath string) (*Client, error) {
 	}
 
 	wm := whatsmeow.NewClient(device, waLog.Noop)
+	// Auto-reconnect on transient network failures is the right
+	// default for a desktop chat client — without it the user has to
+	// manually re-pair every time their wifi blips. whatsmeow handles
+	// the backoff internally.
+	wm.EnableAutoReconnect = true
 	return &Client{wm: wm, container: container}, nil
+}
+
+// PairPhone returns an 8-character pairing code that can be typed into
+// the WhatsApp phone app instead of scanning the QR. Caller must have
+// already started Connect() — whatsmeow needs the websocket to be open
+// before requesting a code.
+//
+// `phone` is the target's number in international format (no '+', e.g.
+// "27821234567"). The returned code is shown to the user; they type it
+// in WhatsApp → Linked Devices → Link with phone number.
+//
+// clientDisplay is the label that appears on the user's phone in the
+// linked-devices list — pass e.g. "wachat (Windows)".
+func (c *Client) PairPhone(ctx context.Context, phone, clientDisplay string) (string, error) {
+	if c == nil || c.wm == nil {
+		return "", fmt.Errorf("wa.PairPhone: client is nil")
+	}
+	if phone == "" {
+		return "", fmt.Errorf("wa.PairPhone: phone is required")
+	}
+	code, err := c.wm.PairPhone(ctx, phone, true, whatsmeow.PairClientChrome, clientDisplay)
+	if err != nil {
+		return "", fmt.Errorf("wa.PairPhone: %w", err)
+	}
+	return code, nil
 }
 
 // NeedsPairing reports whether the device has not yet been linked to a
