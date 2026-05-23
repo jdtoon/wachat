@@ -10,6 +10,8 @@ import (
 	"go.mau.fi/whatsmeow/types/events"
 )
 
+// _ = store.Cursor{} // unused; reserved for future store-dependent helpers
+
 // MessageEvent is wachat's normalized form of an incoming WhatsApp message.
 // It exists so the UI layer never has to import whatsmeow's types — the
 // boundary stays in this package (CLAUDE.md §3 / §4).
@@ -115,13 +117,28 @@ const (
 // this build understands into wachat-local types. Other event types
 // are silently ignored — the broader event surface lands as wachat
 // grows.
-func (h *Handler) Adapter(ctx context.Context) whatsmeow.EventHandler {
+//
+// ownJIDFn is called when an event needs the local device's JID
+// (currently just history sync, where the proto's MessageKey.FromMe
+// flag has to be turned back into a sender JID). Pass nil to defer
+// to the empty-sender fallback.
+func (h *Handler) Adapter(ctx context.Context, ownJIDFn func() string) whatsmeow.EventHandler {
 	return func(evt any) {
 		switch e := evt.(type) {
 		case *events.Message:
 			if err := h.OnMessage(ctx, fromWMMessage(e)); err != nil && h.Logger != nil {
 				h.Logger(err)
 			}
+		case *events.HistorySync:
+			ownJID := ""
+			if ownJIDFn != nil {
+				ownJID = ownJIDFn()
+			}
+			if err := h.OnHistorySync(ctx, e.Data, ownJID); err != nil && h.Logger != nil {
+				h.Logger(err)
+			}
+		case *events.PushName:
+			h.applyPushName(ctx, e.JID.String(), e.NewPushName)
 		case *events.Connected:
 			h.publishState(ConnectionConnected)
 		case *events.Disconnected:
@@ -131,6 +148,27 @@ func (h *Handler) Adapter(ctx context.Context) whatsmeow.EventHandler {
 		case *events.PairSuccess:
 			h.publishState(ConnectionConnected)
 		}
+	}
+}
+
+// applyPushName records a learned push name on the chats table if the
+// chat is a 1:1 (the JID matches an existing chat row). Group chats
+// have explicit names from the server and we don't overwrite those
+// from a participant push name.
+func (h *Handler) applyPushName(ctx context.Context, jid, pushName string) {
+	if h == nil || jid == "" || pushName == "" {
+		return
+	}
+	persister, ok := h.Store.(HistoryPersister)
+	if !ok {
+		return
+	}
+	// Best-effort — errors get logged via h.Logger but don't bubble.
+	if err := persister.UpsertChat(ctx, jid, pushName); err != nil && h.Logger != nil {
+		h.Logger(fmt.Errorf("wa.applyPushName %s: %w", jid, err))
+	}
+	if h.Notify != nil {
+		h.Notify()
 	}
 }
 
@@ -155,20 +193,12 @@ func (h *Handler) publishState(s ConnectionState) {
 // fromWMMessage maps the whatsmeow event onto wachat's normalized struct.
 // Kept package-private so the conversion stays inside the wa boundary.
 func fromWMMessage(e *events.Message) MessageEvent {
-	body := ""
-	if m := e.Message; m != nil {
-		if conv := m.GetConversation(); conv != "" {
-			body = conv
-		} else if ext := m.GetExtendedTextMessage(); ext != nil {
-			body = ext.GetText()
-		}
-	}
 	return MessageEvent{
 		WAID:      e.Info.ID,
 		ChatJID:   e.Info.Chat.String(),
 		SenderJID: e.Info.Sender.String(),
 		TS:        e.Info.Timestamp.UnixMilli(),
-		Body:      body,
+		Body:      extractBody(e.Message),
 		FromMe:    e.Info.IsFromMe,
 	}
 }

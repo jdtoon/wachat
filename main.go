@@ -139,7 +139,7 @@ func run(dbPath string, noConnect bool) error {
 				}
 			},
 		}
-		waCli.AddEventHandler(handler.Adapter(ctx))
+		waCli.AddEventHandler(handler.Adapter(ctx, waCli.OwnJID))
 		waSender = waCli.SendText
 		// Once we know our own JID, the bubble alignment can flip from
 		// the "empty sender = from me" fallback to the real comparison.
