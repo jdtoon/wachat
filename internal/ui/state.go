@@ -197,6 +197,51 @@ func (st *State) upsertChatSummary(ev wa.MessageEvent) {
 	})
 }
 
+// AddOptimistic inserts an outgoing message into the view-model and the
+// store before the network round-trip completes. The bubble appears
+// immediately in a "pending" state — when the matching incoming event
+// arrives via wa.Handler, the dedup path in store.Insert + OnIncoming
+// reconciles to the server-confirmed row.
+//
+// waID is whatsmeow's server-assigned message ID; we already have it
+// at this point (wa.SendText returned it before the receipt event).
+// chatJID is the conversation we sent to. body is the trimmed text.
+//
+// Side effects:
+//   - Persists the message with empty SenderJID (our local convention
+//     for "from me" — see view.isFromMe).
+//   - Folds the row into the selected-chat Messages via OnIncoming so
+//     the bubble appears immediately. unread is NOT bumped.
+func (st *State) AddOptimistic(ctx context.Context, waID, chatJID, body string, ts int64) error {
+	if chatJID == "" {
+		return fmt.Errorf("ui.AddOptimistic: chatJID is required")
+	}
+	if waID == "" {
+		return fmt.Errorf("ui.AddOptimistic: waID is required")
+	}
+	msg := store.Message{
+		WAID:      waID,
+		ChatJID:   chatJID,
+		SenderJID: "", // "from me" convention
+		TS:        ts,
+		Body:      body,
+	}
+	if _, err := st.store.Insert(ctx, msg, false); err != nil {
+		return fmt.Errorf("ui.AddOptimistic: persist: %w", err)
+	}
+	// Reuse the OnIncoming reducer so chat list + selected pane both
+	// update — pass FromMe=true so unread isn't bumped and chat
+	// summary recomputes correctly.
+	st.OnIncoming(wa.MessageEvent{
+		WAID:    waID,
+		ChatJID: chatJID,
+		TS:      ts,
+		Body:    body,
+		FromMe:  true,
+	})
+	return nil
+}
+
 // MarkSelectedRead clears the unread counter on the selected chat both in
 // the store and in the view-model. Called when the user has visibly read
 // the messages in the open conversation.

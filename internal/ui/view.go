@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"gioui.org/layout"
+	"gioui.org/op"
 	"gioui.org/op/clip"
 	"gioui.org/op/paint"
 	"gioui.org/unit"
@@ -23,6 +24,7 @@ type View struct {
 	chatList    widget.List
 	msgList     widget.List
 	chatClicks  []widget.Clickable
+	composer    *Composer
 	prevNearEnd bool // last frame's "near the end of loaded window" state
 }
 
@@ -34,7 +36,7 @@ const NearEndThreshold = 5
 
 // NewView constructs a View with sensible defaults.
 func NewView() *View {
-	v := &View{}
+	v := &View{composer: NewComposer()}
 	v.chatList.Axis = layout.Vertical
 	v.msgList.Axis = layout.Vertical
 	// Messages are rendered newest-at-bottom; default to anchoring the
@@ -56,6 +58,10 @@ type ViewCallbacks struct {
 	// scroll position leaves the trigger zone and re-enters it (e.g.
 	// after a successful page load extends the buffer).
 	OnNearEnd func()
+	// OnSend fires when the user submits the composer (Enter or Send
+	// button). body is the trimmed text. Caller wires this to
+	// wa.SendText + state.AddOptimistic.
+	OnSend func(chatJID, body string)
 }
 
 // Layout renders the two-pane view: chat list on the left (fixed 300dp),
@@ -98,7 +104,7 @@ func (v *View) Layout(gtx layout.Context, th *Theme, st *State, cb ViewCallbacks
 			return verticalDivider(gtx, th.Palette.Divider)
 		}),
 		layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
-			return v.layoutMessages(gtx, th, st)
+			return v.layoutConversation(gtx, th, st, cb)
 		}),
 	)
 
@@ -152,6 +158,84 @@ func (v *View) layoutChatList(gtx layout.Context, th *Theme, st *State) layout.D
 			return layoutChatRow(gtx, th, c)
 		})
 	})
+}
+
+// layoutConversation is the right-side pane: an optional header above
+// the messages list above the composer. Vertical flex.
+func (v *View) layoutConversation(gtx layout.Context, th *Theme, st *State, cb ViewCallbacks) layout.Dimensions {
+	if st.SelectedChat == "" {
+		mat := th.Material()
+		empty := material.Label(mat, th.Type.Body, "Select a chat")
+		empty.Color = th.Palette.TextSecondary
+		return layout.Center.Layout(gtx, empty.Layout)
+	}
+	return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
+		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+			return v.layoutHeader(gtx, th, st)
+		}),
+		layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
+			return v.layoutMessages(gtx, th, st)
+		}),
+		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+			return v.composer.Layout(gtx, th, func(body string) {
+				if cb.OnSend != nil {
+					cb.OnSend(st.SelectedChat, body)
+				}
+			})
+		}),
+	)
+}
+
+// layoutHeader is the conversation header bar (chat name + tiny
+// separator). Stays compact; richer metadata (presence dot, action
+// icons) lands later.
+func (v *View) layoutHeader(gtx layout.Context, th *Theme, st *State) layout.Dimensions {
+	mat := th.Material()
+	name := headerName(st)
+	return paintHeaderSurface(gtx, th, func(gtx layout.Context) layout.Dimensions {
+		return layout.Inset{
+			Top: th.Spacing.S, Bottom: th.Spacing.S,
+			Left: th.Spacing.M, Right: th.Spacing.M,
+		}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+			lbl := material.Label(mat, th.Type.Title, name)
+			lbl.Color = th.Palette.TextPrimary
+			lbl.MaxLines = 1
+			return lbl.Layout(gtx)
+		})
+	})
+}
+
+func paintHeaderSurface(gtx layout.Context, th *Theme, w layout.Widget) layout.Dimensions {
+	macro := op.Record(gtx.Ops)
+	dims := w(gtx)
+	call := macro.Stop()
+
+	// Surface fill + bottom 1dp divider.
+	rect := image.Rect(0, 0, gtx.Constraints.Max.X, dims.Size.Y)
+	defer clip.Rect(rect).Push(gtx.Ops).Pop()
+	paint.ColorOp{Color: th.Palette.Surface}.Add(gtx.Ops)
+	paint.PaintOp{}.Add(gtx.Ops)
+	call.Add(gtx.Ops)
+
+	dividerH := gtx.Dp(unit.Dp(1))
+	dr := image.Rect(0, dims.Size.Y-dividerH, gtx.Constraints.Max.X, dims.Size.Y)
+	stk := clip.Rect(dr).Push(gtx.Ops)
+	paint.ColorOp{Color: th.Palette.Divider}.Add(gtx.Ops)
+	paint.PaintOp{}.Add(gtx.Ops)
+	stk.Pop()
+	return layout.Dimensions{Size: image.Pt(gtx.Constraints.Max.X, dims.Size.Y)}
+}
+
+func headerName(st *State) string {
+	for _, c := range st.Chats {
+		if c.JID == st.SelectedChat {
+			if c.Name != "" {
+				return c.Name
+			}
+			break
+		}
+	}
+	return st.SelectedChat
 }
 
 // layoutMessages renders the message pane with newest-at-bottom

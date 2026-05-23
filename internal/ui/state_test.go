@@ -288,6 +288,73 @@ func TestMarkSelectedRead_NoChatSelectedIsNoOp(t *testing.T) {
 	}
 }
 
+// --- AddOptimistic (outgoing) ---
+
+func TestAddOptimistic_PersistsAndAppearsInSelectedChat(t *testing.T) {
+	st, _ := openState(t)
+	st.SelectedChat = "c1"
+	ctx := context.Background()
+
+	if err := st.AddOptimistic(ctx, "wa-out-1", "c1", "hello", 1000); err != nil {
+		t.Fatalf("AddOptimistic: %v", err)
+	}
+
+	if len(st.Messages) != 1 {
+		t.Fatalf("Messages len = %d, want 1", len(st.Messages))
+	}
+	if st.Messages[0].WAID != "wa-out-1" {
+		t.Errorf("Messages[0].WAID = %q, want wa-out-1", st.Messages[0].WAID)
+	}
+	if st.Messages[0].SenderJID != "" {
+		t.Errorf("Messages[0].SenderJID = %q, want empty (from me)", st.Messages[0].SenderJID)
+	}
+	if st.Messages[0].Body != "hello" {
+		t.Errorf("Messages[0].Body = %q, want hello", st.Messages[0].Body)
+	}
+}
+
+func TestAddOptimistic_DoesNotBumpUnread(t *testing.T) {
+	st, _ := openState(t)
+	st.SelectedChat = "c1"
+
+	if err := st.AddOptimistic(context.Background(), "wa-out-1", "c1", "hi", 1000); err != nil {
+		t.Fatalf("AddOptimistic: %v", err)
+	}
+	for _, c := range st.Chats {
+		if c.JID == "c1" && c.Unread != 0 {
+			t.Errorf("c1.Unread = %d, want 0 (outgoing should not bump unread)", c.Unread)
+		}
+	}
+}
+
+func TestAddOptimistic_ValidatesArgs(t *testing.T) {
+	st, _ := openState(t)
+	ctx := context.Background()
+	if err := st.AddOptimistic(ctx, "", "c1", "body", 1); err == nil {
+		t.Error("empty waID: want error")
+	}
+	if err := st.AddOptimistic(ctx, "w1", "", "body", 1); err == nil {
+		t.Error("empty chatJID: want error")
+	}
+}
+
+func TestAddOptimistic_DedupOnRedelivery(t *testing.T) {
+	st, _ := openState(t)
+	st.SelectedChat = "c1"
+	ctx := context.Background()
+
+	if err := st.AddOptimistic(ctx, "w1", "c1", "v1", 1000); err != nil {
+		t.Fatalf("first add: %v", err)
+	}
+	// Same waID again — must not double the bubble.
+	if err := st.AddOptimistic(ctx, "w1", "c1", "v2", 1000); err != nil {
+		t.Fatalf("redelivery add: %v", err)
+	}
+	if len(st.Messages) != 1 {
+		t.Errorf("Messages len = %d after redelivery, want 1", len(st.Messages))
+	}
+}
+
 // fmtWA generates a sortable wa_id for tests.
 func fmtWA(i int) string {
 	return fmtPad("w", i)

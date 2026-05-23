@@ -14,6 +14,7 @@ import (
 	"log"
 	"os"
 	"strings"
+	"time"
 
 	"gioui.org/app"
 	"gioui.org/op"
@@ -83,6 +84,12 @@ func run(dbPath string, noConnect bool) error {
 	// Background-goroutine → UI-goroutine handoff channel.
 	incoming := make(chan wa.MessageEvent, incomingBuffer)
 
+	// waSender is set inside the !noConnect block once the wa client is
+	// up. Declared here so the OnSend callback can close over it. In
+	// -no-connect mode it stays nil and the composer just persists an
+	// optimistic bubble locally.
+	var waSender func(ctx context.Context, chatJID, body string) (waID string, err error)
+
 	// whatsmeow client + handler. Skipped in -no-connect mode so the UI
 	// can be exercised offline against the local store.
 	if !noConnect {
@@ -100,6 +107,10 @@ func run(dbPath string, noConnect bool) error {
 			Logger: func(err error) { log.Println("wa.Handler:", err) },
 		}
 		waCli.AddEventHandler(handler.Adapter(ctx))
+		waSender = waCli.SendText
+		// Once we know our own JID, the bubble alignment can flip from
+		// the "empty sender = from me" fallback to the real comparison.
+		state.OwnJID = waCli.OwnJID()
 
 		if waCli.NeedsPairing() {
 			qrCh, err := waCli.QRChannel(ctx)
@@ -135,6 +146,35 @@ func run(dbPath string, noConnect bool) error {
 			if _, err := state.LoadOlder(ctx); err != nil {
 				log.Println("LoadOlder:", err)
 			}
+		},
+		OnSend: func(chatJID, body string) {
+			waID := ""
+			ts := time.Now().UnixMilli()
+			if waSender != nil {
+				// Send is async so the UI never blocks. Optimistic bubble
+				// uses a placeholder waID; the dedup path replaces it when
+				// the real receipt arrives (assuming the IDs match — we
+				// currently can't predict the server-assigned ID, so the
+				// real bubble will be a separate row briefly. v0.0.4
+				// follow-up: use whatsmeow's GenerateMessageID for the
+				// optimistic side so dedup works on first arrival).
+				go func() {
+					id, err := waSender(ctx, chatJID, body)
+					if err != nil {
+						log.Println("wa.SendText:", err)
+					} else {
+						log.Println("sent:", id)
+					}
+				}()
+				waID = fmt.Sprintf("optimistic-%d", ts)
+			} else {
+				// Offline mode: just persist locally.
+				waID = fmt.Sprintf("local-%d", ts)
+			}
+			if err := state.AddOptimistic(ctx, waID, chatJID, body, ts); err != nil {
+				log.Println("AddOptimistic:", err)
+			}
+			w.Invalidate()
 		},
 	}
 
