@@ -72,6 +72,67 @@ func TestInsert_StatusFieldHonored(t *testing.T) {
 	}
 }
 
+func TestSetStarred_RoundTrip(t *testing.T) {
+	s := openTempStore(t)
+	ctx := context.Background()
+	mustInsert(t, s, ctx, Message{WAID: "w1", ChatJID: "c1", TS: 1, Body: "hi"}, false)
+
+	if err := s.SetStarred(ctx, "w1", true); err != nil {
+		t.Fatalf("SetStarred: %v", err)
+	}
+	page, _, _ := s.PageOlder(ctx, "c1", Cursor{}, 10)
+	if len(page) != 1 || !page[0].Starred {
+		t.Errorf("Starred not round-tripped: %+v", page)
+	}
+
+	if err := s.SetStarred(ctx, "w1", false); err != nil {
+		t.Fatalf("SetStarred unstar: %v", err)
+	}
+	page, _, _ = s.PageOlder(ctx, "c1", Cursor{}, 10)
+	if page[0].Starred {
+		t.Errorf("unstar didn't clear flag")
+	}
+}
+
+func TestSetStarred_UnknownWAIDIsNoOp(t *testing.T) {
+	s := openTempStore(t)
+	if err := s.SetStarred(context.Background(), "nope", true); err != nil {
+		t.Errorf("unknown waID should be no-op, got %v", err)
+	}
+}
+
+func TestSetStarred_RequiresWAID(t *testing.T) {
+	s := openTempStore(t)
+	if err := s.SetStarred(context.Background(), "", true); err == nil {
+		t.Error("empty waID: want error")
+	}
+}
+
+func TestListStarred_FiltersAndOrders(t *testing.T) {
+	s := openTempStore(t)
+	ctx := context.Background()
+	for i, body := range []string{"first", "second", "third"} {
+		mustInsert(t, s, ctx, Message{
+			WAID: fmtPad("w", i), ChatJID: "c1", TS: int64(i + 1), Body: body,
+		}, false)
+	}
+	// Star only w0 and w2.
+	_ = s.SetStarred(ctx, "w00000", true)
+	_ = s.SetStarred(ctx, "w00002", true)
+
+	hits, err := s.ListStarred(ctx, 10)
+	if err != nil {
+		t.Fatalf("ListStarred: %v", err)
+	}
+	if len(hits) != 2 {
+		t.Fatalf("got %d hits, want 2", len(hits))
+	}
+	// Newest first.
+	if hits[0].Body != "third" || hits[1].Body != "first" {
+		t.Errorf("ListStarred order: %+v", hits)
+	}
+}
+
 func TestApplyEdit_UpdatesBodyAndFlag(t *testing.T) {
 	s := openTempStore(t)
 	ctx := context.Background()

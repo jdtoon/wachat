@@ -192,8 +192,8 @@ func formatBubbleMeta(m store.Message) string {
 }
 
 // layoutBubbleMeta draws the bottom row of a bubble: the time on the
-// left, and (for outgoing messages only) a delivery tick on the
-// right. Tick glyph + color follow WhatsApp convention:
+// left, the star glyph (when starred) and tick (outgoing only) on
+// the right. Tick glyph + color follow WhatsApp convention:
 //
 //	pending   → ⏱  (clock; not yet ack'd by server)
 //	sent      → ✓
@@ -205,26 +205,35 @@ func layoutBubbleMeta(gtx layout.Context, th *Theme, m store.Message, fromMe boo
 	timeLbl := material.Label(mat, th.Type.Meta, formatBubbleMeta(m))
 	timeLbl.Color = th.Palette.TextSecondary
 
-	if !fromMe {
-		return timeLbl.Layout(gtx)
-	}
-
-	glyph, useAccent := receiptGlyph(m.Status)
-	if glyph == "" {
-		return timeLbl.Layout(gtx)
-	}
-	tick := material.Label(mat, th.Type.Meta, glyph)
-	if useAccent {
-		tick.Color = th.Palette.Accent
-	} else {
-		tick.Color = th.Palette.TextSecondary
-	}
-
-	return layout.Flex{Axis: layout.Horizontal, Alignment: layout.Middle}.Layout(gtx,
+	children := []layout.FlexChild{
 		layout.Rigid(timeLbl.Layout),
-		layout.Rigid(layout.Spacer{Width: th.Spacing.XS}.Layout),
-		layout.Rigid(tick.Layout),
-	)
+	}
+	if m.Starred {
+		star := material.Label(mat, th.Type.Meta, "★")
+		star.Color = th.Palette.Accent
+		children = append(children,
+			layout.Rigid(layout.Spacer{Width: th.Spacing.XS}.Layout),
+			layout.Rigid(star.Layout),
+		)
+	}
+	if fromMe {
+		if glyph, useAccent := receiptGlyph(m.Status); glyph != "" {
+			tick := material.Label(mat, th.Type.Meta, glyph)
+			if useAccent {
+				tick.Color = th.Palette.Accent
+			} else {
+				tick.Color = th.Palette.TextSecondary
+			}
+			children = append(children,
+				layout.Rigid(layout.Spacer{Width: th.Spacing.XS}.Layout),
+				layout.Rigid(tick.Layout),
+			)
+		}
+	}
+	if len(children) == 1 {
+		return timeLbl.Layout(gtx)
+	}
+	return layout.Flex{Axis: layout.Horizontal, Alignment: layout.Middle}.Layout(gtx, children...)
 }
 
 // layoutMediaBlock renders the media portion of a bubble: a thumbnail

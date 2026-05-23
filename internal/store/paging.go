@@ -40,7 +40,7 @@ func (s *Store) PageAround(ctx context.Context, chatJID string, anchorID int64, 
 		return nil, Cursor{}, fmt.Errorf("store.PageAround: before/after must be non-negative")
 	}
 
-	const selectCols = `SELECT id, wa_id, chat_jid, sender_jid, ts, body, media_path, media_type, status, quoted_waid, quoted_body, quoted_sender, edited, revoked, link_url, link_title, link_desc FROM messages`
+	const selectCols = `SELECT id, wa_id, chat_jid, sender_jid, ts, body, media_path, media_type, status, quoted_waid, quoted_body, quoted_sender, edited, revoked, link_url, link_title, link_desc, starred FROM messages`
 
 	// Anchor row — also gives us the TS we need for the OLDER side.
 	var anchor Message
@@ -105,12 +105,12 @@ type rowScanner interface {
 func scanMessage(row rowScanner, m *Message) error {
 	var waID, senderJID, body, mediaPath, mediaType, status sql.NullString
 	var quotedWAID, quotedBody, quotedSender sql.NullString
-	var edited, revoked int
+	var edited, revoked, starred int
 	var linkURL, linkTitle, linkDesc sql.NullString
 	if err := row.Scan(&m.ID, &waID, &m.ChatJID, &senderJID, &m.TS,
 		&body, &mediaPath, &mediaType, &status,
 		&quotedWAID, &quotedBody, &quotedSender, &edited, &revoked,
-		&linkURL, &linkTitle, &linkDesc); err != nil {
+		&linkURL, &linkTitle, &linkDesc, &starred); err != nil {
 		return err
 	}
 	m.WAID = waID.String
@@ -127,6 +127,7 @@ func scanMessage(row rowScanner, m *Message) error {
 	m.LinkURL = linkURL.String
 	m.LinkTitle = linkTitle.String
 	m.LinkDesc = linkDesc.String
+	m.Starred = starred != 0
 	return nil
 }
 
@@ -173,7 +174,7 @@ func (s *Store) PageOlder(ctx context.Context, chatJID string, before Cursor, li
 		rows *sql.Rows
 		err  error
 	)
-	const selectCols = `SELECT id, wa_id, chat_jid, sender_jid, ts, body, media_path, media_type, status, quoted_waid, quoted_body, quoted_sender, edited, revoked, link_url, link_title, link_desc FROM messages`
+	const selectCols = `SELECT id, wa_id, chat_jid, sender_jid, ts, body, media_path, media_type, status, quoted_waid, quoted_body, quoted_sender, edited, revoked, link_url, link_title, link_desc, starred FROM messages`
 	if before.IsZero() {
 		rows, err = s.db.QueryContext(ctx, selectCols+`
             WHERE chat_jid = ?

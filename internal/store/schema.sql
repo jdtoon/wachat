@@ -28,7 +28,8 @@ CREATE TABLE IF NOT EXISTS messages (
     revoked       INTEGER NOT NULL DEFAULT 0,  -- 1 once delete-for-everyone
     link_url      TEXT,                 -- URL detected in the message (for link previews)
     link_title    TEXT,                 -- title from the link preview metadata
-    link_desc     TEXT                  -- description from the link preview metadata
+    link_desc     TEXT,                 -- description from the link preview metadata
+    starred       INTEGER NOT NULL DEFAULT 0   -- 1 once the user starred the message
 );
 
 -- Keyset paging hot path: WHERE chat_jid=? AND ts<? ORDER BY ts DESC LIMIT N.

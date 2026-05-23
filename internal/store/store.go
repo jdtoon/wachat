@@ -71,6 +71,10 @@ func Open(ctx context.Context, path string) (*Store, error) {
 		_ = db.Close()
 		return nil, fmt.Errorf("store: migrate link-preview: %w", err)
 	}
+	if err := migrateAddStarredColumn(ctx, db); err != nil {
+		_ = db.Close()
+		return nil, fmt.Errorf("store: migrate starred: %w", err)
+	}
 
 	// Backfill the FTS5 index for any existing rows that predate the
 	// virtual table (e.g. upgrading a v0.0.4 DB to v0.0.5+). Cheap when
@@ -148,6 +152,20 @@ func migrateAddReplyEditRevokeColumns(ctx context.Context, db *sql.DB) error {
 		}
 	}
 	return nil
+}
+
+// migrateAddStarredColumn adds messages.starred for DBs that predate v0.2.0.
+func migrateAddStarredColumn(ctx context.Context, db *sql.DB) error {
+	have, err := columnSet(ctx, db, "messages")
+	if err != nil {
+		return err
+	}
+	if have["starred"] {
+		return nil
+	}
+	_, err = db.ExecContext(ctx,
+		`ALTER TABLE messages ADD COLUMN starred INTEGER NOT NULL DEFAULT 0`)
+	return err
 }
 
 // migrateAddLinkPreviewColumns adds link_url / link_title / link_desc

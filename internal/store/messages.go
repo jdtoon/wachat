@@ -54,6 +54,10 @@ type Message struct {
 	LinkURL   string
 	LinkTitle string
 	LinkDesc  string
+
+	// Starred messages are bookmarked locally; the bubble renders a
+	// ★ next to the meta row.
+	Starred bool
 }
 
 // Message status constants. Keep these in sync with bubble.go's tick
@@ -104,9 +108,9 @@ func (s *Store) Insert(ctx context.Context, m Message, bumpUnread bool) (bool, e
             wa_id, chat_jid, sender_jid, ts, body,
             media_path, media_type, status,
             quoted_waid, quoted_body, quoted_sender, edited, revoked,
-            link_url, link_title, link_desc
+            link_url, link_title, link_desc, starred
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(wa_id) DO NOTHING
     `,
 		m.WAID, m.ChatJID, nullableString(m.SenderJID), m.TS,
@@ -115,6 +119,7 @@ func (s *Store) Insert(ctx context.Context, m Message, bumpUnread bool) (bool, e
 		nullableString(m.QuotedWAID), nullableString(m.QuotedBody), nullableString(m.QuotedSender),
 		boolToInt(m.Edited), boolToInt(m.Revoked),
 		nullableString(m.LinkURL), nullableString(m.LinkTitle), nullableString(m.LinkDesc),
+		boolToInt(m.Starred),
 	)
 	if err != nil {
 		return false, fmt.Errorf("store.Insert: insert message: %w", err)
@@ -167,6 +172,51 @@ func (s *Store) UpsertChat(ctx context.Context, jid, name string) error {
 		return fmt.Errorf("store.UpsertChat: %w", err)
 	}
 	return nil
+}
+
+// SetStarred flips the starred flag on a message. Star / unstar from
+// the UI right-click menu (lands with the broader context menu) calls
+// this and also syncs the action to WhatsApp via the wa.StarMessage
+// app-state path.
+func (s *Store) SetStarred(ctx context.Context, waID string, starred bool) error {
+	if waID == "" {
+		return fmt.Errorf("store.SetStarred: waID required")
+	}
+	v := 0
+	if starred {
+		v = 1
+	}
+	_, err := s.db.ExecContext(ctx,
+		`UPDATE messages SET starred = ? WHERE wa_id = ?`, v, waID)
+	if err != nil {
+		return fmt.Errorf("store.SetStarred: %w", err)
+	}
+	return nil
+}
+
+// ListStarred returns every starred message across all chats,
+// newest-first. Used by the future "starred messages" view.
+func (s *Store) ListStarred(ctx context.Context, limit int) ([]Message, error) {
+	if limit <= 0 {
+		return nil, fmt.Errorf("store.ListStarred: limit required")
+	}
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT id, wa_id, chat_jid, sender_jid, ts, body, media_path, media_type, status, quoted_waid, quoted_body, quoted_sender, edited, revoked, link_url, link_title, link_desc, starred
+        FROM messages WHERE starred = 1 ORDER BY ts DESC LIMIT ?`, limit)
+	if err != nil {
+		return nil, fmt.Errorf("store.ListStarred: %w", err)
+	}
+	defer rows.Close()
+	var out []Message
+	for rows.Next() {
+		var m Message
+		if err := scanMessageRows(rows, &m); err != nil {
+			return nil, fmt.Errorf("store.ListStarred: scan: %w", err)
+		}
+		m.Starred = true // we know — filtered by it
+		out = append(out, m)
+	}
+	return out, rows.Err()
 }
 
 // ApplyEdit updates an existing message's body and flips the edited

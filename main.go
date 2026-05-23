@@ -23,6 +23,7 @@ import (
 
 	"github.com/mdp/qrterminal/v3"
 
+	"github.com/jdtoon/wachat/internal/notify"
 	"github.com/jdtoon/wachat/internal/store"
 	"github.com/jdtoon/wachat/internal/ui"
 	"github.com/jdtoon/wachat/internal/wa"
@@ -302,7 +303,34 @@ func run(dbPath string, noConnect bool) error {
 	var ops op.Ops
 	for {
 		// Drain any pending events before blocking on the next frame.
-		drainIncoming(incoming, state)
+		// Notify on incoming messages that match the toast criteria.
+		drainIncomingNotify(incoming, state, func(ev wa.MessageEvent) {
+			if ev.FromMe {
+				return
+			}
+			if ev.ChatJID == state.SelectedChat {
+				return // user is actively reading this chat
+			}
+			// Muted chats are silent.
+			for _, c := range state.Chats {
+				if c.JID == ev.ChatJID && c.IsMuted(time.Now().UnixMilli()) {
+					return
+				}
+			}
+			title := state.NameFor(ev.ChatJID)
+			if title == "" {
+				title = ev.ChatJID
+			}
+			body := ev.Body
+			if body == "" {
+				if ev.MediaType != "" {
+					body = "[" + ev.MediaType + "]"
+				} else {
+					body = "(new message)"
+				}
+			}
+			notify.Send(title, body)
+		})
 
 		ev := w.Event()
 		switch ev := ev.(type) {
@@ -381,10 +409,20 @@ func readDensity(ctx context.Context, s *store.Store) ui.Density {
 // drainIncoming folds every pending event into state without blocking.
 // Called once per frame; the frame loop then renders from state.
 func drainIncoming(in <-chan wa.MessageEvent, st *ui.State) {
+	drainIncomingNotify(in, st, nil)
+}
+
+// drainIncomingNotify is drainIncoming + a side-effect callback per
+// event, used to surface desktop notifications. The callback runs
+// AFTER OnIncoming so it can read the up-to-date state if it needs.
+func drainIncomingNotify(in <-chan wa.MessageEvent, st *ui.State, onEach func(wa.MessageEvent)) {
 	for {
 		select {
 		case ev := <-in:
 			st.OnIncoming(ev)
+			if onEach != nil {
+				onEach(ev)
+			}
 		default:
 			return
 		}

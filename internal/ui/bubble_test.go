@@ -77,6 +77,21 @@ func TestSummarizeReactions_SkipsEmptyEmoji(t *testing.T) {
 	}
 }
 
+func TestLayoutBubbleMeta_StarRendersOnIncomingToo(t *testing.T) {
+	// Pure structural test: with Starred=true and fromMe=false we
+	// still get the star glyph in the meta row. We can't easily
+	// inspect the rendered glyphs from outside Gio, so we rely on
+	// the function not panicking + the bubble height being non-zero.
+	th := newTestTheme()
+	gtx := testGtx(800, 600)
+	dims := layoutBubbleMeta(gtx, th, store.Message{
+		WAID: "w1", TS: 1, Body: "hi", Starred: true,
+	}, false)
+	if dims.Size.Y == 0 {
+		t.Errorf("Starred meta row should render non-zero height")
+	}
+}
+
 func TestReceiptGlyph_TruthTable(t *testing.T) {
 	cases := []struct {
 		status string

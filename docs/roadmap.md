@@ -96,7 +96,7 @@ page over 100k messages, Go heap **flat at ~0.5 MB**).
 
 ---
 
-## Phase 2 — Parity (replaces the official client)
+## Phase 2 — Parity (replaces the official client) — **partial @ v0.2.0**
 
 **Goal:** everything a daily driver needs, all within budget.
 
