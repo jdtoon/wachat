@@ -16,6 +16,16 @@ import (
 // (the database assigns it). The (TS, ID) pair is the keyset cursor used
 // by PageOlder to avoid the duplicate / skip hazard when two messages
 // share a millisecond.
+//
+// Status tracks the delivery state for outgoing messages (and stays
+// "sent" for incoming). Transitions:
+//
+//	pending → sent      (server ack from whatsmeow.SendMessage)
+//	sent    → delivered (events.Receipt with ReceiptTypeDelivered)
+//	delivered → read    (events.Receipt with ReceiptTypeRead)
+//	(voice) sent → played (ReceiptTypePlayed; future use)
+//
+// Empty string defaults to StatusSent on Insert.
 type Message struct {
 	ID        int64
 	WAID      string
@@ -25,7 +35,18 @@ type Message struct {
 	Body      string
 	MediaPath string
 	MediaType string
+	Status    string
 }
+
+// Message status constants. Keep these in sync with bubble.go's tick
+// rendering and the receipt-handling switch in wa/handler.go.
+const (
+	StatusPending   = "pending"
+	StatusSent      = "sent"
+	StatusDelivered = "delivered"
+	StatusRead      = "read"
+	StatusPlayed    = "played"
+)
 
 // Insert persists m and updates the chat's last_ts atomically.
 //
@@ -53,15 +74,21 @@ func (s *Store) Insert(ctx context.Context, m Message, bumpUnread bool) (bool, e
 	}
 	defer func() { _ = tx.Rollback() }() // safe no-op after Commit
 
+	status := m.Status
+	if status == "" {
+		status = StatusSent
+	}
+
 	// INSERT OR IGNORE returns rowsAffected=1 on insert and 0 on dedup hit,
 	// which is exactly the signal we want without a separate SELECT.
 	res, err := tx.ExecContext(ctx, `
-        INSERT INTO messages (wa_id, chat_jid, sender_jid, ts, body, media_path, media_type)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO messages (wa_id, chat_jid, sender_jid, ts, body, media_path, media_type, status)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(wa_id) DO NOTHING
     `,
 		m.WAID, m.ChatJID, nullableString(m.SenderJID), m.TS,
 		nullableString(m.Body), nullableString(m.MediaPath), nullableString(m.MediaType),
+		status,
 	)
 	if err != nil {
 		return false, fmt.Errorf("store.Insert: insert message: %w", err)
@@ -112,6 +139,27 @@ func (s *Store) UpsertChat(ctx context.Context, jid, name string) error {
     `, jid, name)
 	if err != nil {
 		return fmt.Errorf("store.UpsertChat: %w", err)
+	}
+	return nil
+}
+
+// UpdateStatus sets messages.status by wa_id. Status transitions are
+// driven by wa.Handler from events.Receipt; this is the single mutating
+// API the wa layer calls.
+//
+// No-op for an unknown wa_id (defensive: a receipt may arrive for a
+// message we never persisted, e.g. very old history not synced yet).
+func (s *Store) UpdateStatus(ctx context.Context, waID, status string) error {
+	if waID == "" {
+		return fmt.Errorf("store.UpdateStatus: waID is required")
+	}
+	if status == "" {
+		return fmt.Errorf("store.UpdateStatus: status is required")
+	}
+	_, err := s.db.ExecContext(ctx,
+		`UPDATE messages SET status = ? WHERE wa_id = ?`, status, waID)
+	if err != nil {
+		return fmt.Errorf("store.UpdateStatus: %w", err)
 	}
 	return nil
 }

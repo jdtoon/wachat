@@ -65,12 +65,12 @@ func layoutBubble(gtx layout.Context, th *Theme, m store.Message, group GroupPos
 				}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 					body := material.Label(mat, th.Type.Body, m.Body)
 					body.Color = th.Palette.TextPrimary
-					meta := material.Label(mat, th.Type.Meta, formatBubbleMeta(m))
-					meta.Color = th.Palette.TextSecondary
 					return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
 						layout.Rigid(body.Layout),
 						layout.Rigid(layout.Spacer{Height: th.Spacing.XXS}.Layout),
-						layout.Rigid(meta.Layout),
+						layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+							return layoutBubbleMeta(gtx, th, m, fromMe)
+						}),
 					)
 				})
 			})
@@ -97,11 +97,63 @@ func roundedFill(gtx layout.Context, bg color.NRGBA, radius unit.Dp, w layout.Wi
 }
 
 // formatBubbleMeta returns the small line shown at the bottom of a
-// bubble. Currently just a "HH:MM" time; the receipt indicator
-// (sent · delivered · read) lands when the wa send path does in v0.0.4.
+// bubble — currently just "HH:MM". The receipt tick is rendered
+// separately so it can be colored (blue ticks for "read").
 func formatBubbleMeta(m store.Message) string {
 	if m.TS == 0 {
 		return ""
 	}
 	return time.UnixMilli(m.TS).Format("15:04")
+}
+
+// layoutBubbleMeta draws the bottom row of a bubble: the time on the
+// left, and (for outgoing messages only) a delivery tick on the
+// right. Tick glyph + color follow WhatsApp convention:
+//
+//	pending   → ⏱  (clock; not yet ack'd by server)
+//	sent      → ✓
+//	delivered → ✓✓
+//	read      → ✓✓ in accent color (the "blue ticks")
+//	played    → ✓✓ in accent color (voice notes; future)
+func layoutBubbleMeta(gtx layout.Context, th *Theme, m store.Message, fromMe bool) layout.Dimensions {
+	mat := th.Material()
+	timeLbl := material.Label(mat, th.Type.Meta, formatBubbleMeta(m))
+	timeLbl.Color = th.Palette.TextSecondary
+
+	if !fromMe {
+		return timeLbl.Layout(gtx)
+	}
+
+	glyph, useAccent := receiptGlyph(m.Status)
+	if glyph == "" {
+		return timeLbl.Layout(gtx)
+	}
+	tick := material.Label(mat, th.Type.Meta, glyph)
+	if useAccent {
+		tick.Color = th.Palette.Accent
+	} else {
+		tick.Color = th.Palette.TextSecondary
+	}
+
+	return layout.Flex{Axis: layout.Horizontal, Alignment: layout.Middle}.Layout(gtx,
+		layout.Rigid(timeLbl.Layout),
+		layout.Rigid(layout.Spacer{Width: th.Spacing.XS}.Layout),
+		layout.Rigid(tick.Layout),
+	)
+}
+
+// receiptGlyph returns the tick glyph + whether the accent color
+// should be used. Pure function for unit testing.
+func receiptGlyph(status string) (glyph string, accent bool) {
+	switch status {
+	case store.StatusPending:
+		return "⏱", false
+	case store.StatusSent:
+		return "✓", false
+	case store.StatusDelivered:
+		return "✓✓", false
+	case store.StatusRead, store.StatusPlayed:
+		return "✓✓", true
+	}
+	return "", false
 }

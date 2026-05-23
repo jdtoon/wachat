@@ -40,14 +40,14 @@ func (s *Store) PageAround(ctx context.Context, chatJID string, anchorID int64, 
 		return nil, Cursor{}, fmt.Errorf("store.PageAround: before/after must be non-negative")
 	}
 
-	const selectCols = `SELECT id, wa_id, chat_jid, sender_jid, ts, body, media_path, media_type FROM messages`
+	const selectCols = `SELECT id, wa_id, chat_jid, sender_jid, ts, body, media_path, media_type, status FROM messages`
 
 	// Anchor row — also gives us the TS we need for the OLDER side.
 	var anchor Message
 	{
-		var waID, senderJID, body, mediaPath, mediaType sql.NullString
+		var waID, senderJID, body, mediaPath, mediaType, status sql.NullString
 		err := s.db.QueryRowContext(ctx, selectCols+` WHERE id = ? AND chat_jid = ?`, anchorID, chatJID).
-			Scan(&anchor.ID, &waID, &anchor.ChatJID, &senderJID, &anchor.TS, &body, &mediaPath, &mediaType)
+			Scan(&anchor.ID, &waID, &anchor.ChatJID, &senderJID, &anchor.TS, &body, &mediaPath, &mediaType, &status)
 		if err != nil {
 			return nil, Cursor{}, fmt.Errorf("store.PageAround: anchor %d: %w", anchorID, err)
 		}
@@ -56,6 +56,7 @@ func (s *Store) PageAround(ctx context.Context, chatJID string, anchorID int64, 
 		anchor.Body = body.String
 		anchor.MediaPath = mediaPath.String
 		anchor.MediaType = mediaType.String
+		anchor.Status = status.String
 	}
 
 	// NEWER half: messages strictly newer than the anchor. ORDER BY ts
@@ -102,8 +103,8 @@ func (s *Store) queryMessages(ctx context.Context, q string, args ...any) ([]Mes
 	var out []Message
 	for rows.Next() {
 		var m Message
-		var waID, senderJID, body, mediaPath, mediaType sql.NullString
-		if err := rows.Scan(&m.ID, &waID, &m.ChatJID, &senderJID, &m.TS, &body, &mediaPath, &mediaType); err != nil {
+		var waID, senderJID, body, mediaPath, mediaType, status sql.NullString
+		if err := rows.Scan(&m.ID, &waID, &m.ChatJID, &senderJID, &m.TS, &body, &mediaPath, &mediaType, &status); err != nil {
 			return nil, err
 		}
 		m.WAID = waID.String
@@ -111,6 +112,7 @@ func (s *Store) queryMessages(ctx context.Context, q string, args ...any) ([]Mes
 		m.Body = body.String
 		m.MediaPath = mediaPath.String
 		m.MediaType = mediaType.String
+		m.Status = status.String
 		out = append(out, m)
 	}
 	return out, rows.Err()
@@ -141,7 +143,7 @@ func (s *Store) PageOlder(ctx context.Context, chatJID string, before Cursor, li
 		rows *sql.Rows
 		err  error
 	)
-	const selectCols = `SELECT id, wa_id, chat_jid, sender_jid, ts, body, media_path, media_type FROM messages`
+	const selectCols = `SELECT id, wa_id, chat_jid, sender_jid, ts, body, media_path, media_type, status FROM messages`
 	if before.IsZero() {
 		rows, err = s.db.QueryContext(ctx, selectCols+`
             WHERE chat_jid = ?
@@ -168,7 +170,8 @@ func (s *Store) PageOlder(ctx context.Context, chatJID string, before Cursor, li
 	for rows.Next() {
 		var m Message
 		var waID, senderJID, body, mediaPath, mediaType sql.NullString
-		if err := rows.Scan(&m.ID, &waID, &m.ChatJID, &senderJID, &m.TS, &body, &mediaPath, &mediaType); err != nil {
+		var status sql.NullString
+		if err := rows.Scan(&m.ID, &waID, &m.ChatJID, &senderJID, &m.TS, &body, &mediaPath, &mediaType, &status); err != nil {
 			return nil, Cursor{}, fmt.Errorf("store.PageOlder: scan: %w", err)
 		}
 		m.WAID = waID.String
@@ -176,6 +179,7 @@ func (s *Store) PageOlder(ctx context.Context, chatJID string, before Cursor, li
 		m.Body = body.String
 		m.MediaPath = mediaPath.String
 		m.MediaType = mediaType.String
+		m.Status = status.String
 		out = append(out, m)
 	}
 	if err := rows.Err(); err != nil {

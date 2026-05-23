@@ -10,8 +10,6 @@ import (
 	"go.mau.fi/whatsmeow/types/events"
 )
 
-// _ = store.Cursor{} // unused; reserved for future store-dependent helpers
-
 // MessageEvent is wachat's normalized form of an incoming WhatsApp message.
 // It exists so the UI layer never has to import whatsmeow's types — the
 // boundary stays in this package (CLAUDE.md §3 / §4).
@@ -139,6 +137,8 @@ func (h *Handler) Adapter(ctx context.Context, ownJIDFn func() string) whatsmeow
 			}
 		case *events.PushName:
 			h.applyPushName(ctx, e.JID.String(), e.NewPushName)
+		case *events.Receipt:
+			h.OnReceipt(ctx, e.MessageIDs, e.Type)
 		case *events.Connected:
 			h.publishState(ConnectionConnected)
 		case *events.Disconnected:

@@ -86,10 +86,16 @@ func run(dbPath string, noConnect bool) error {
 	incoming := make(chan wa.MessageEvent, incomingBuffer)
 
 	// waSender is set inside the !noConnect block once the wa client is
-	// up. Declared here so the OnSend callback can close over it. In
+	// up. The signature now takes a pre-minted msgID (see wa.GenerateID
+	// + wa.SendText) so the optimistic bubble and the eventually-
+	// confirmed receipt share a WAID and dedup on first arrival.
+	// Declared here so the OnSend callback can close over it. In
 	// -no-connect mode it stays nil and the composer just persists an
 	// optimistic bubble locally.
-	var waSender func(ctx context.Context, chatJID, body string) (waID string, err error)
+	var waSender func(ctx context.Context, chatJID, body, msgID string) error
+	// waGenerateID returns a fresh whatsmeow MessageID, or "" in
+	// -no-connect mode (caller falls back to a local placeholder).
+	var waGenerateID func() string = func() string { return "" }
 
 	// Pairing view + connection-state surface. The frame loop branches
 	// on pairingView.Phase() — when not yet paired we show the linking
@@ -141,6 +147,7 @@ func run(dbPath string, noConnect bool) error {
 		}
 		waCli.AddEventHandler(handler.Adapter(ctx, waCli.OwnJID))
 		waSender = waCli.SendText
+		waGenerateID = waCli.GenerateID
 		// Once we know our own JID, the bubble alignment can flip from
 		// the "empty sender = from me" fallback to the real comparison.
 		state.OwnJID = waCli.OwnJID()
@@ -221,31 +228,31 @@ func run(dbPath string, noConnect bool) error {
 			}
 		},
 		OnSend: func(chatJID, body string) {
-			waID := ""
 			ts := time.Now().UnixMilli()
-			if waSender != nil {
-				// Send is async so the UI never blocks. Optimistic bubble
-				// uses a placeholder waID; the dedup path replaces it when
-				// the real receipt arrives (assuming the IDs match — we
-				// currently can't predict the server-assigned ID, so the
-				// real bubble will be a separate row briefly. v0.0.4
-				// follow-up: use whatsmeow's GenerateMessageID for the
-				// optimistic side so dedup works on first arrival).
-				go func() {
-					id, err := waSender(ctx, chatJID, body)
-					if err != nil {
-						log.Println("wa.SendText:", err)
-					} else {
-						log.Println("sent:", id)
-					}
-				}()
-				waID = fmt.Sprintf("optimistic-%d", ts)
-			} else {
-				// Offline mode: just persist locally.
+			// Mint the WAID up front so the optimistic bubble and any
+			// later receipt share an id (dedup wins on first arrival).
+			waID := waGenerateID()
+			if waID == "" {
+				// -no-connect mode: still need a stable id for the
+				// store row; the prefix makes redeliveries impossible
+				// to clash with real WhatsApp ids.
 				waID = fmt.Sprintf("local-%d", ts)
 			}
 			if err := state.AddOptimistic(ctx, waID, chatJID, body, ts); err != nil {
 				log.Println("AddOptimistic:", err)
+			}
+			if waSender != nil {
+				go func() {
+					if err := waSender(ctx, chatJID, body, waID); err != nil {
+						log.Println("wa.SendText:", err)
+						return
+					}
+					// Server accepted — flip the bubble from pending → sent.
+					if err := s.UpdateStatus(ctx, waID, store.StatusSent); err != nil {
+						log.Println("UpdateStatus(sent):", err)
+					}
+					w.Invalidate()
+				}()
 			}
 			w.Invalidate()
 		},

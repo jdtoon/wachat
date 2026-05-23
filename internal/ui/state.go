@@ -276,6 +276,7 @@ func (st *State) AddOptimistic(ctx context.Context, waID, chatJID, body string, 
 		SenderJID: "", // "from me" convention
 		TS:        ts,
 		Body:      body,
+		Status:    store.StatusPending,
 	}
 	if _, err := st.store.Insert(ctx, msg, false); err != nil {
 		return fmt.Errorf("ui.AddOptimistic: persist: %w", err)
@@ -290,6 +291,13 @@ func (st *State) AddOptimistic(ctx context.Context, waID, chatJID, body string, 
 		Body:    body,
 		FromMe:  true,
 	})
+	// OnIncoming would have written StatusSent into the in-memory copy
+	// it just prepended (default empty Status → unspecified). Fix the
+	// pending tag on the leading element so the bubble's tick shows
+	// the in-flight state correctly.
+	if len(st.Messages) > 0 && st.Messages[0].WAID == waID {
+		st.Messages[0].Status = store.StatusPending
+	}
 	return nil
 }
 

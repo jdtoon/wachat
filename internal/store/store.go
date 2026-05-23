@@ -53,6 +53,13 @@ func Open(ctx context.Context, path string) (*Store, error) {
 		return nil, fmt.Errorf("store: apply schema: %w", err)
 	}
 
+	// Schema migrations for upgraded DBs (CREATE TABLE IF NOT EXISTS
+	// doesn't change existing tables).
+	if err := migrateAddStatusColumn(ctx, db); err != nil {
+		_ = db.Close()
+		return nil, fmt.Errorf("store: migrate status: %w", err)
+	}
+
 	// Backfill the FTS5 index for any existing rows that predate the
 	// virtual table (e.g. upgrading a v0.0.4 DB to v0.0.5+). Cheap when
 	// already in sync — SELECT count check first to avoid the rebuild
@@ -63,6 +70,43 @@ func Open(ctx context.Context, path string) (*Store, error) {
 	}
 
 	return &Store{db: db}, nil
+}
+
+// migrateAddStatusColumn adds the `status` column to `messages` on
+// DBs that predate v0.1.3. Detection: PRAGMA table_info(messages) is
+// scanned for the column; missing → ALTER TABLE ADD COLUMN with a
+// default of 'sent' so existing rows are valid.
+func migrateAddStatusColumn(ctx context.Context, db *sql.DB) error {
+	rows, err := db.QueryContext(ctx, `PRAGMA table_info(messages)`)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	has := false
+	for rows.Next() {
+		var (
+			cid         int
+			name, dtype string
+			notnull, pk int
+			dflt        sql.NullString
+		)
+		if err := rows.Scan(&cid, &name, &dtype, &notnull, &dflt, &pk); err != nil {
+			return err
+		}
+		if name == "status" {
+			has = true
+			break
+		}
+	}
+	if has {
+		return nil
+	}
+	_, err = db.ExecContext(ctx,
+		`ALTER TABLE messages ADD COLUMN status TEXT NOT NULL DEFAULT 'sent'`)
+	if err != nil {
+		return fmt.Errorf("alter table: %w", err)
+	}
+	return nil
 }
 
 // backfillFTSIfNeeded re-indexes any messages that exist in the messages
