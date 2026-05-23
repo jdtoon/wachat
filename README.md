@@ -65,13 +65,15 @@ wachat/
 
 Tracks [`CLAUDE.md §12`](./CLAUDE.md#12-status--next-steps).
 
-- [x] `go.mod` + initial dependencies pinned (`modernc.org/sqlite`, `whatsmeow`)
+- [x] `go.mod` + initial dependencies pinned (`modernc.org/sqlite`, `whatsmeow`, `gioui.org`)
 - [x] whatsmeow client wrapper (connect, QR pairing, session container)
 - [x] SQLite store: schema, insert-with-dedup, keyset page query
 - [x] Event handler → channel → notify pipeline (persist-first, non-blocking send)
-- [ ] Gio frame loop + two-pane layout (chat list | messages)
-- [ ] Virtualized chat list
-- [ ] Virtualized message view + bubble rendering
+- [x] Gio frame loop + two-pane layout (chat list | messages)
+- [x] Virtualized chat list — bounded by viewport regardless of total
+- [x] Virtualized message view + bubble rendering
+- [ ] Actually connect whatsmeow + render QR pairing on first run
+- [ ] Auto-page older messages on scroll-up
 - [ ] Lazy media download + thumbnail decode/release
 - [ ] Measure: idle RAM, cold-start time, scroll smoothness over 100k messages
 
