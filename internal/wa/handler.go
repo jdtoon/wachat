@@ -51,6 +51,10 @@ type Handler struct {
 	// non-nil and Notify is also set, the UI is woken right after the
 	// callback so the banner repaints promptly.
 	OnConnState func(ConnectionState)
+	// OnTyping is invoked for ChatPresence updates. composing=true
+	// means "is typing"; false means "stopped." The UI tracks a
+	// transient map keyed on chatJID.
+	OnTyping func(chatJID, senderJID string, composing bool)
 }
 
 // OnMessage runs the persist → send → notify pipeline for a single event.
@@ -160,6 +164,14 @@ func (h *Handler) Adapter(ctx context.Context, ownJIDFn func() string) whatsmeow
 			h.applyPushName(ctx, e.JID.String(), e.NewPushName)
 		case *events.Receipt:
 			h.OnReceipt(ctx, e.MessageIDs, e.Type)
+		case *events.Pin:
+			h.applyPin(ctx, e)
+		case *events.Mute:
+			h.applyMute(ctx, e)
+		case *events.Archive:
+			h.applyArchive(ctx, e)
+		case *events.ChatPresence:
+			h.publishChatPresence(e)
 		case *events.Connected:
 			h.publishState(ConnectionConnected)
 		case *events.Disconnected:

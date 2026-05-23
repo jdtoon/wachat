@@ -120,6 +120,9 @@ func run(dbPath string, noConnect bool) error {
 			Out:    incoming,
 			Notify: w.Invalidate,
 			Logger: func(err error) { log.Println("wa.Handler:", err) },
+			OnTyping: func(chatJID, senderJID string, composing bool) {
+				state.SetTyping(chatJID, senderJID, composing, time.Now().UnixMilli())
+			},
 			OnConnState: func(cs wa.ConnectionState) {
 				switch cs {
 				case wa.ConnectionConnected:

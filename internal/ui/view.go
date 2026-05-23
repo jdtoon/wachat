@@ -249,6 +249,9 @@ func (v *View) layoutConversation(gtx layout.Context, th *Theme, st *State, cb V
 			return v.layoutMessages(gtx, th, st)
 		}),
 		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+			return v.layoutTypingIndicator(gtx, th, st)
+		}),
+		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 			return v.composer.Layout(gtx, th, func(body string) {
 				if cb.OnSend != nil {
 					cb.OnSend(st.SelectedChat, body)
@@ -256,6 +259,64 @@ func (v *View) layoutConversation(gtx layout.Context, th *Theme, st *State, cb V
 			})
 		}),
 	)
+}
+
+// layoutTypingIndicator shows the "Alice is typing…" line just above
+// the composer when there's a live typing event. Renders nothing
+// when nobody is composing.
+func (v *View) layoutTypingIndicator(gtx layout.Context, th *Theme, st *State) layout.Dimensions {
+	nowMS := time.Now().UnixMilli()
+	typers := st.ActiveTypers(st.SelectedChat, nowMS)
+	if len(typers) == 0 {
+		return layout.Dimensions{}
+	}
+	mat := th.Material()
+	// Build a "Alice, Bob is typing…" string. Cap at 3 senders so the
+	// line never blows up the layout.
+	names := make([]string, 0, 3)
+	for i, e := range typers {
+		if i >= 3 {
+			names = append(names, "…")
+			break
+		}
+		name := st.NameFor(e.SenderJID)
+		if name == "" {
+			name = e.SenderJID
+		}
+		names = append(names, name)
+	}
+	verb := "is typing…"
+	if len(typers) > 1 {
+		verb = "are typing…"
+	}
+	msg := joinNames(names) + " " + verb
+	return layout.Inset{
+		Top: th.Spacing.XS, Bottom: th.Spacing.XXS,
+		Left: th.Spacing.M, Right: th.Spacing.M,
+	}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+		lbl := material.Label(mat, th.Type.Meta, msg)
+		lbl.Color = th.Palette.TextSecondary
+		return lbl.Layout(gtx)
+	})
+}
+
+// joinNames is a tiny strings.Join replacement so we don't pull
+// strings.Join into the layout package just for this.
+func joinNames(s []string) string {
+	switch len(s) {
+	case 0:
+		return ""
+	case 1:
+		return s[0]
+	case 2:
+		return s[0] + " and " + s[1]
+	}
+	out := s[0]
+	for i := 1; i < len(s)-1; i++ {
+		out += ", " + s[i]
+	}
+	out += ", and " + s[len(s)-1]
+	return out
 }
 
 // layoutHeader is the conversation header bar: optional back arrow

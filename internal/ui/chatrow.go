@@ -43,9 +43,10 @@ func layoutChatRow(gtx layout.Context, th *Theme, c ChatSummary) layout.Dimensio
 
 			// Name + subtitle stack, flexed to take remaining space.
 			// Unread rows bold the name and use a stronger preview
-			// color so the eye finds them quickly.
+			// color so the eye finds them quickly. Pin / mute glyphs
+			// sit next to the name.
 			layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
-				name := material.Label(mat, th.Type.Title, displayName(c))
+				name := material.Label(mat, th.Type.Title, decorateName(c))
 				name.Color = th.Palette.TextPrimary
 				name.MaxLines = 1
 				sub := material.Label(mat, th.Type.Meta, chatSubtitle(c))
@@ -134,6 +135,20 @@ func layoutUnreadBadge(gtx layout.Context, th *Theme, count int) layout.Dimensio
 	}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 		return roundedFill(gtx, th.Palette.Unread, th.Radius.Button, lbl.Layout)
 	})
+}
+
+// decorateName prepends pin / mute glyphs to the chat name so the
+// state is visible in a glance. The icons stay tiny so the name
+// remains the visual anchor.
+func decorateName(c ChatSummary) string {
+	prefix := ""
+	if c.Pinned {
+		prefix += "📌 "
+	}
+	if c.MuteUntil != 0 {
+		prefix += "🔇 "
+	}
+	return prefix + displayName(c)
 }
 
 // initial returns the first uppercase letter of name, or empty if name

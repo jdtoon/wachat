@@ -20,10 +20,23 @@ import (
 // ChatSummary is one row in the chat list. It is the projection of a
 // chats-table row that the chat list view actually renders.
 type ChatSummary struct {
-	JID    string
-	Name   string
-	LastTS int64
-	Unread int
+	JID       string
+	Name      string
+	LastTS    int64
+	Unread    int
+	Pinned    bool
+	Archived  bool
+	MuteUntil int64 // unix millis; 0 = not muted, -1 = forever
+}
+
+// IsMuted reports whether the chat is currently muted. -1 means
+// forever; any positive value compares against `now` (caller can pass
+// time.Now().UnixMilli() to check).
+func (c ChatSummary) IsMuted(nowMS int64) bool {
+	if c.MuteUntil == -1 {
+		return true
+	}
+	return c.MuteUntil > nowMS
 }
 
 // PageSize is the default number of messages fetched per keyset page.
@@ -59,6 +72,74 @@ type State struct {
 	// target wa_id. Refreshed alongside Messages on SelectChat /
 	// LoadOlder so the bubble layout doesn't hit the DB per row.
 	Reactions map[string][]store.Reaction
+
+	// Typing tracks who is currently typing in each chat. Entries are
+	// short-lived — a "composing" event sets a deadline, a "paused"
+	// event clears the entry. The frame loop reads this each frame so
+	// the indicator appears/disappears in real time.
+	Typing map[string][]TypingEntry
+}
+
+// TypingEntry is one participant who is currently typing in a chat.
+type TypingEntry struct {
+	SenderJID string
+	UntilMS   int64
+}
+
+// TypingTTL is how long a "composing" event is treated as still
+// valid in the absence of a "paused" follow-up. WhatsApp's official
+// clients use ~10–15 seconds.
+const TypingTTL = 10 * 1000 // 10s in millis
+
+// SetTyping records a typing transition for a chat. composing=true
+// extends the deadline; composing=false removes the entry. nowMS is
+// the current monotonic time in millis (caller passes time.Now()
+// .UnixMilli() — kept as an arg for testability).
+func (st *State) SetTyping(chatJID, senderJID string, composing bool, nowMS int64) {
+	if chatJID == "" || senderJID == "" {
+		return
+	}
+	if st.Typing == nil {
+		st.Typing = make(map[string][]TypingEntry)
+	}
+	entries := st.Typing[chatJID]
+	// Drop any expired or matching entries first.
+	kept := entries[:0]
+	for _, e := range entries {
+		if e.SenderJID == senderJID {
+			continue
+		}
+		if e.UntilMS > nowMS {
+			kept = append(kept, e)
+		}
+	}
+	if composing {
+		kept = append(kept, TypingEntry{
+			SenderJID: senderJID,
+			UntilMS:   nowMS + TypingTTL,
+		})
+	}
+	if len(kept) == 0 {
+		delete(st.Typing, chatJID)
+	} else {
+		st.Typing[chatJID] = kept
+	}
+}
+
+// ActiveTypers returns the senders typing in chatJID right now,
+// dropping expired entries. Cheap to call per frame.
+func (st *State) ActiveTypers(chatJID string, nowMS int64) []TypingEntry {
+	entries := st.Typing[chatJID]
+	if len(entries) == 0 {
+		return nil
+	}
+	out := make([]TypingEntry, 0, len(entries))
+	for _, e := range entries {
+		if e.UntilMS > nowMS {
+			out = append(out, e)
+		}
+	}
+	return out
 }
 
 // NewState binds the reducer to a store. The store is required even though
@@ -66,10 +147,15 @@ type State struct {
 // the constructor surfaces the contract that State is store-backed.
 func NewState(s *store.Store) *State { return &State{store: s} }
 
-// LoadChats refreshes the chat list from the store. Sorted newest-first.
+// LoadChats refreshes the chat list from the store. Archived chats
+// are excluded; the chat list is sorted pinned-first (within each
+// group, newest-last-ts first).
 func (st *State) LoadChats(ctx context.Context) error {
-	rows, err := st.store.DB().QueryContext(ctx,
-		`SELECT jid, name, COALESCE(last_ts, 0), unread FROM chats`)
+	rows, err := st.store.DB().QueryContext(ctx, `
+        SELECT jid, name, COALESCE(last_ts, 0), unread, pinned, archived, mute_until
+        FROM chats
+        WHERE archived = 0
+    `)
 	if err != nil {
 		return fmt.Errorf("ui.LoadChats: %w", err)
 	}
@@ -78,15 +164,24 @@ func (st *State) LoadChats(ctx context.Context) error {
 	var out []ChatSummary
 	for rows.Next() {
 		var c ChatSummary
-		if err := rows.Scan(&c.JID, &c.Name, &c.LastTS, &c.Unread); err != nil {
+		var pinned, archived int
+		if err := rows.Scan(&c.JID, &c.Name, &c.LastTS, &c.Unread, &pinned, &archived, &c.MuteUntil); err != nil {
 			return fmt.Errorf("ui.LoadChats: scan: %w", err)
 		}
+		c.Pinned = pinned != 0
+		c.Archived = archived != 0
 		out = append(out, c)
 	}
 	if err := rows.Err(); err != nil {
 		return fmt.Errorf("ui.LoadChats: rows: %w", err)
 	}
-	sort.SliceStable(out, func(i, j int) bool { return out[i].LastTS > out[j].LastTS })
+	sort.SliceStable(out, func(i, j int) bool {
+		// Pinned chats sort first; within each group, newer LastTS first.
+		if out[i].Pinned != out[j].Pinned {
+			return out[i].Pinned
+		}
+		return out[i].LastTS > out[j].LastTS
+	})
 	st.Chats = out
 	return nil
 }

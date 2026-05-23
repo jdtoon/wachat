@@ -36,10 +36,13 @@ CREATE INDEX IF NOT EXISTS idx_chat_ts ON messages(chat_jid, ts DESC);
 -- maintained by store.UpsertChat() on inserts so the chat list can render
 -- without scanning messages.
 CREATE TABLE IF NOT EXISTS chats (
-    jid     TEXT PRIMARY KEY,
-    name    TEXT,
-    last_ts INTEGER,
-    unread  INTEGER NOT NULL DEFAULT 0
+    jid          TEXT PRIMARY KEY,
+    name         TEXT,
+    last_ts      INTEGER,
+    unread       INTEGER NOT NULL DEFAULT 0,
+    pinned       INTEGER NOT NULL DEFAULT 0,
+    archived     INTEGER NOT NULL DEFAULT 0,
+    mute_until   INTEGER NOT NULL DEFAULT 0  -- unix millis; 0 = not muted, -1 = forever
 );
 
 -- Full-text search over message bodies. content='messages' makes this an

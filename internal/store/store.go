@@ -63,6 +63,10 @@ func Open(ctx context.Context, path string) (*Store, error) {
 		_ = db.Close()
 		return nil, fmt.Errorf("store: migrate quote/edit/revoke: %w", err)
 	}
+	if err := migrateAddChatStateColumns(ctx, db); err != nil {
+		_ = db.Close()
+		return nil, fmt.Errorf("store: migrate chat-state: %w", err)
+	}
 
 	// Backfill the FTS5 index for any existing rows that predate the
 	// virtual table (e.g. upgrading a v0.0.4 DB to v0.0.5+). Cheap when
@@ -140,6 +144,55 @@ func migrateAddReplyEditRevokeColumns(ctx context.Context, db *sql.DB) error {
 		}
 	}
 	return nil
+}
+
+// migrateAddChatStateColumns adds pinned / archived / mute_until to
+// the chats table for DBs that predate v0.1.7.
+func migrateAddChatStateColumns(ctx context.Context, db *sql.DB) error {
+	have, err := columnSet(ctx, db, "chats")
+	if err != nil {
+		return err
+	}
+	type col struct{ name, ddl string }
+	wanted := []col{
+		{"pinned", `ALTER TABLE chats ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0`},
+		{"archived", `ALTER TABLE chats ADD COLUMN archived INTEGER NOT NULL DEFAULT 0`},
+		{"mute_until", `ALTER TABLE chats ADD COLUMN mute_until INTEGER NOT NULL DEFAULT 0`},
+	}
+	for _, c := range wanted {
+		if have[c.name] {
+			continue
+		}
+		if _, err := db.ExecContext(ctx, c.ddl); err != nil {
+			return fmt.Errorf("add %s: %w", c.name, err)
+		}
+	}
+	return nil
+}
+
+// columnSet reads PRAGMA table_info for an arbitrary table. Used by
+// the migration helpers; messageColumnSet is the legacy specific
+// variant that pre-dated this one.
+func columnSet(ctx context.Context, db *sql.DB, table string) (map[string]bool, error) {
+	rows, err := db.QueryContext(ctx, `PRAGMA table_info(`+table+`)`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make(map[string]bool)
+	for rows.Next() {
+		var (
+			cid         int
+			name, dtype string
+			notnull, pk int
+			dflt        sql.NullString
+		)
+		if err := rows.Scan(&cid, &name, &dtype, &notnull, &dflt, &pk); err != nil {
+			return nil, err
+		}
+		out[name] = true
+	}
+	return out, nil
 }
 
 // messageColumnSet returns the set of column names currently on the
