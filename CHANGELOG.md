@@ -9,6 +9,41 @@ to [Semantic Versioning][semver].
 
 (nothing yet)
 
+## [0.0.6] - 2026-05-23
+
+### Added
+
+- **In-window QR pairing**: replaces the terminal-only QR with a
+  centered 320dp code drawn directly from `rsc.io/qr.Code.Black(x,y)`
+  (no PNG round-trip). Phase state machine: WaitingQR → Scanned →
+  Syncing → Ready, with Failed for timeouts and unknown events.
+- **Connection banner**: thin top strip for Connecting / Offline /
+  Signed-out states. Zero-height for ConnConnected so the chrome
+  doesn't shift in steady state.
+- **`wa.Client.PairPhone(ctx, phone, clientDisplay)`** wraps
+  whatsmeow's `PairPhone` for the 8-character pair-by-code flow.
+  Callable; UI consumer (phone-input form) lands in a follow-up.
+- **`wa.ConnectionState`** + `Handler.OnConnState` callback derived
+  from `events.Connected / Disconnected / LoggedOut / PairSuccess`.
+- **Auto-reconnect** enabled (`whatsmeow.Client.EnableAutoReconnect`)
+  so transient disconnects recover without manual intervention.
+
+### Internal
+
+- New `ui.LayoutConnectionBanner` helper + `bannerCopy` pure function
+  for testing.
+- `renderRoot` in main.go now picks between PairingView and the main
+  two-pane layout.
+
+### Tests
+
+- `internal/ui/pairing_test.go`: state-machine transitions for every
+  QR event + direct setter coverage.
+- Banner copy: empty on Connected, non-empty on Connecting /
+  Disconnected / LoggedOut.
+
+[0.0.6]: https://github.com/jdtoon/wachat/releases/tag/v0.0.6
+
 ## [0.0.5] - 2026-05-23
 
 ### Added
@@ -174,7 +209,7 @@ media-cache framework is ready to wire into the message bubble.
 - `CGO_ENABLED=0` confirmed via `go version -m wachat`
 - UI goroutine never receives DB writes from background goroutines
 
-[unreleased]: https://github.com/jdtoon/wachat/compare/v0.0.5...HEAD
+[unreleased]: https://github.com/jdtoon/wachat/compare/v0.0.6...HEAD
 [0.0.1]: https://github.com/jdtoon/wachat/releases/tag/v0.0.1
 [kac]: https://keepachangelog.com/en/1.1.0/
 [semver]: https://semver.org/spec/v2.0.0.html
