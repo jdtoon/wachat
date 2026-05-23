@@ -14,6 +14,7 @@ import (
 	"gioui.org/widget"
 	"gioui.org/widget/material"
 
+	"github.com/jdtoon/wachat/internal/media"
 	"github.com/jdtoon/wachat/internal/store"
 )
 
@@ -30,6 +31,14 @@ type View struct {
 	densityBtn  widget.Clickable // header density toggle
 	backBtn     widget.Clickable // narrow-window back button
 	prevNearEnd bool             // last frame's "near the end of loaded window" state
+
+	// Thumbnail decode-on-visible plumbing. The cache holds decoded
+	// images; the tracker computes Decode/Release deltas as the
+	// visible message window changes. visiblePaths is scratch space
+	// rebuilt each frame.
+	imgCache     *media.Cache
+	imgTracker   *media.Tracker
+	visiblePaths []string
 }
 
 // NarrowWindowDp is the width below which we collapse the two-pane
@@ -51,7 +60,27 @@ func NewView() *View {
 	// Messages are rendered newest-at-bottom; default to anchoring the
 	// view to the end so new arrivals are immediately visible.
 	v.msgList.ScrollToEnd = true
+	v.imgCache = NewThumbnailCache()
+	v.imgTracker = media.NewTracker(v.imgCache)
 	return v
+}
+
+// thumbnailFor returns the decoded thumbnail for the given on-disk
+// path. Returns nil if the path is empty or decoding has not yet
+// happened. Used by the bubble code; the tracker's SetVisible
+// invocation later in the frame brings new paths into the cache.
+func (v *View) thumbnailFor(path string) image.Image {
+	if v.imgCache == nil || path == "" {
+		return nil
+	}
+	img, err := v.imgCache.Decode(path)
+	if err != nil {
+		return nil
+	}
+	// Decode increments refcount; release once so the count balances
+	// with the SetVisible Decode at end-of-frame.
+	v.imgCache.Release(path)
+	return img
 }
 
 // ViewCallbacks are the actions Layout can ask the caller to perform.
@@ -438,6 +467,15 @@ func (v *View) layoutMessages(gtx layout.Context, th *Theme, st *State) layout.D
 	count := len(st.Messages)
 	ownJID := st.OwnJID
 	isGroup := IsGroup(st.SelectedChat)
+	v.visiblePaths = v.visiblePaths[:0]
+	defer func() {
+		// After laying out all visible bubbles, reconcile the cache
+		// to match what we just drew. Newly-appearing thumbnails get
+		// decoded; departed ones are released so the LRU can evict.
+		if v.imgTracker != nil {
+			v.imgTracker.SetVisible(v.visiblePaths)
+		}
+	}()
 	return material.List(mat, &v.msgList).Layout(gtx, count, func(gtx layout.Context, i int) layout.Dimensions {
 		// Reverse the index so newest sits at the bottom of the viewport.
 		idx := count - 1 - i
@@ -456,7 +494,12 @@ func (v *View) layoutMessages(gtx layout.Context, th *Theme, st *State) layout.D
 			}
 		}
 		rs := st.Reactions[m.WAID]
-		return layoutBubble(gtx, th, m, group, fromMe, senderLabel, rs)
+		var thumb image.Image
+		if m.MediaPath != "" {
+			v.visiblePaths = append(v.visiblePaths, m.MediaPath)
+			thumb = v.thumbnailFor(m.MediaPath)
+		}
+		return layoutBubble(gtx, th, m, group, fromMe, senderLabel, rs, thumb)
 	})
 }
 

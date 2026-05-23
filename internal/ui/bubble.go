@@ -35,7 +35,11 @@ import (
 //
 // reactions is the set of reactions on this message; pass nil for
 // none. The bubble renders a chip cluster below the meta row.
-func layoutBubble(gtx layout.Context, th *Theme, m store.Message, group GroupPosition, fromMe bool, senderLabel string, reactions []store.Reaction) layout.Dimensions {
+//
+// thumbnail is an already-decoded image for media messages; pass nil
+// for text-only or when the decode hasn't happened yet (the cache +
+// tracker plumb this in over a frame).
+func layoutBubble(gtx layout.Context, th *Theme, m store.Message, group GroupPosition, fromMe bool, senderLabel string, reactions []store.Reaction, thumbnail image.Image) layout.Dimensions {
 	mat := th.Material()
 	bg := th.Palette.BubbleRecv
 	align := layout.W
@@ -97,21 +101,40 @@ func layoutBubble(gtx layout.Context, th *Theme, m store.Message, group GroupPos
 						)
 					}
 
+					// Media thumbnail or media-type pill ABOVE the body
+					// caption.
+					if m.MediaType != "" {
+						children = append(children,
+							layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+								return layoutMediaBlock(gtx, th, m, thumbnail)
+							}),
+							layout.Rigid(layout.Spacer{Height: th.Spacing.XS}.Layout),
+						)
+					}
+
 					// Body — revoked messages show a placeholder.
 					bodyText, italicized := bubbleBodyText(m)
+					if bodyText == "" && m.MediaType != "" {
+						// No caption — skip the body Label entirely.
+					}
 					body := material.Label(mat, th.Type.Body, bodyText)
 					body.Color = th.Palette.TextPrimary
 					if italicized {
 						body.Color = th.Palette.TextSecondary
 						body.Font.Style = font.Italic
 					}
+					if bodyText != "" {
+						children = append(children, layout.Rigid(body.Layout))
+					} else {
+						_ = body // silence unused
+					}
 					children = append(children,
-						layout.Rigid(body.Layout),
 						layout.Rigid(layout.Spacer{Height: th.Spacing.XXS}.Layout),
 						layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 							return layoutBubbleMeta(gtx, th, m, fromMe)
 						}),
 					)
+					_ = mat // silence (already used above)
 					if len(reactions) > 0 {
 						children = append(children,
 							layout.Rigid(layout.Spacer{Height: th.Spacing.XS}.Layout),
@@ -189,6 +212,43 @@ func layoutBubbleMeta(gtx layout.Context, th *Theme, m store.Message, fromMe boo
 		layout.Rigid(layout.Spacer{Width: th.Spacing.XS}.Layout),
 		layout.Rigid(tick.Layout),
 	)
+}
+
+// layoutMediaBlock renders the media portion of a bubble: a thumbnail
+// when one is available, otherwise a small media-type pill so the
+// user still knows an attachment was sent.
+func layoutMediaBlock(gtx layout.Context, th *Theme, m store.Message, thumbnail image.Image) layout.Dimensions {
+	if thumbnail != nil {
+		return layoutThumbnail(gtx, th, thumbnail, unit.Dp(220))
+	}
+	mat := th.Material()
+	glyph, label := mediaTypeGlyph(m.MediaType)
+	lbl := material.Label(mat, th.Type.Label, glyph+" "+label)
+	lbl.Color = th.Palette.TextSecondary
+	return roundedFill(gtx, th.Palette.Surface, th.Radius.Button, func(gtx layout.Context) layout.Dimensions {
+		return layout.Inset{
+			Top: th.Spacing.XS, Bottom: th.Spacing.XS,
+			Left: th.Spacing.S, Right: th.Spacing.S,
+		}.Layout(gtx, lbl.Layout)
+	})
+}
+
+// mediaTypeGlyph returns the glyph + label for a media-type pill.
+// Pure helper for unit testing.
+func mediaTypeGlyph(mediaType string) (glyph, label string) {
+	switch mediaType {
+	case "image":
+		return "📷", "Photo"
+	case "video":
+		return "🎬", "Video"
+	case "audio":
+		return "🎙", "Voice note"
+	case "document":
+		return "📄", "Document"
+	case "sticker":
+		return "🎴", "Sticker"
+	}
+	return "📎", "Attachment"
 }
 
 // bubbleBodyText returns what to render as the bubble's main body.

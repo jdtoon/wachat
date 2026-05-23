@@ -25,6 +25,11 @@ type MessageEvent struct {
 	QuotedWAID   string
 	QuotedBody   string
 	QuotedSender string
+
+	// Media info — set when the message wraps an attachment. Body is
+	// already populated with the caption (if any).
+	MediaPath string // on-disk path (thumbnail; full-res on demand)
+	MediaType string // see MediaType* constants
 }
 
 // Persister is the subset of *store.Store the handler needs. Defined as
@@ -79,6 +84,8 @@ func (h *Handler) OnMessage(ctx context.Context, ev MessageEvent) error {
 		SenderJID:    ev.SenderJID,
 		TS:           ev.TS,
 		Body:         ev.Body,
+		MediaPath:    ev.MediaPath,
+		MediaType:    ev.MediaType,
 		QuotedWAID:   ev.QuotedWAID,
 		QuotedBody:   ev.QuotedBody,
 		QuotedSender: ev.QuotedSender,
@@ -225,9 +232,15 @@ func (h *Handler) publishState(s ConnectionState) {
 
 // fromWMMessage maps the whatsmeow event onto wachat's normalized struct.
 // Kept package-private so the conversion stays inside the wa boundary.
+//
+// If the message carries media (image/video/audio/document/sticker)
+// the type goes onto MediaType, the caption onto Body, and any
+// embedded JPEG thumbnail is written to disk with the path on
+// MediaPath. Full-resolution downloads happen on demand via
+// Client.DownloadImage.
 func fromWMMessage(e *events.Message) MessageEvent {
 	qWAID, qBody, qSender := extractQuoted(e.Message)
-	return MessageEvent{
+	ev := MessageEvent{
 		WAID:         e.Info.ID,
 		ChatJID:      e.Info.Chat.String(),
 		SenderJID:    e.Info.Sender.String(),
@@ -238,4 +251,14 @@ func fromWMMessage(e *events.Message) MessageEvent {
 		QuotedBody:   qBody,
 		QuotedSender: qSender,
 	}
+	if mi := extractMedia(e.Message); mi.Type != "" {
+		ev.MediaType = mi.Type
+		if mi.Caption != "" {
+			ev.Body = mi.Caption
+		}
+		if path, err := writeThumbnail(ev.WAID, mi.ThumbnailJPEG); err == nil {
+			ev.MediaPath = path
+		}
+	}
+	return ev
 }
