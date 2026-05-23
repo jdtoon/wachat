@@ -61,15 +61,39 @@ func (c *Client) NeedsPairing() bool {
 	return c.wm.Store.ID == nil
 }
 
-// QRChannel returns the whatsmeow pairing QR stream. Items have an Event
-// field: "code" carries a new QR code in Code; QRChannelSuccess /
-// QRChannelTimeout / err-* signal terminal states. Call before Connect.
-func (c *Client) QRChannel(ctx context.Context) (<-chan whatsmeow.QRChannelItem, error) {
-	ch, err := c.wm.GetQRChannel(ctx)
+// QRItem is the wachat-local view of a whatsmeow QR pairing event. We
+// re-export it (rather than passing whatsmeow.QRChannelItem through) so
+// callers outside this package never have to import whatsmeow. See
+// CLAUDE.md §3 — keeping the boundary thin contains API drift.
+type QRItem struct {
+	Event string // "code", "success", "timeout", "err-*"
+	Code  string // pairing code when Event == "code"
+}
+
+// QRChannel returns a stream of QR pairing events. "code" items carry a
+// new QR pairing payload in Code; "success" / "timeout" are terminal.
+// Call before Connect. The channel closes when whatsmeow finishes (or
+// times out) the pairing flow.
+func (c *Client) QRChannel(ctx context.Context) (<-chan QRItem, error) {
+	raw, err := c.wm.GetQRChannel(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("wa.QRChannel: %w", err)
 	}
-	return ch, nil
+	return adaptQRChannel(raw), nil
+}
+
+// adaptQRChannel converts whatsmeow's QRChannelItem stream into wachat's
+// QRItem stream. Extracted so the conversion (and the goroutine that
+// owns the bridge channel) can be unit-tested without dialing WhatsApp.
+func adaptQRChannel(raw <-chan whatsmeow.QRChannelItem) <-chan QRItem {
+	out := make(chan QRItem, 4)
+	go func() {
+		defer close(out)
+		for item := range raw {
+			out <- QRItem{Event: item.Event, Code: item.Code}
+		}
+	}()
+	return out
 }
 
 // Connect dials the WhatsApp servers. If NeedsPairing returns true, the

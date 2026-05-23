@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"strings"
 
 	"gioui.org/app"
 	"gioui.org/font/gofont"
@@ -20,6 +21,8 @@ import (
 	"gioui.org/text"
 	"gioui.org/unit"
 	"gioui.org/widget/material"
+
+	"github.com/mdp/qrterminal/v3"
 
 	"github.com/jdtoon/wachat/internal/store"
 	"github.com/jdtoon/wachat/internal/ui"
@@ -39,6 +42,7 @@ const incomingBuffer = 64
 func main() {
 	showVersion := flag.Bool("version", false, "print version and exit")
 	dbPath := flag.String("db", "wachat.db", "path to the wachat SQLite database")
+	noConnect := flag.Bool("no-connect", false, "open the UI without connecting to WhatsApp (offline dev mode)")
 	flag.Parse()
 
 	if *showVersion {
@@ -47,7 +51,7 @@ func main() {
 	}
 
 	go func() {
-		if err := run(*dbPath); err != nil {
+		if err := run(*dbPath, *noConnect); err != nil {
 			log.Println("wachat:", err)
 			os.Exit(1)
 		}
@@ -56,7 +60,7 @@ func main() {
 	app.Main()
 }
 
-func run(dbPath string) error {
+func run(dbPath string, noConnect bool) error {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -79,15 +83,44 @@ func run(dbPath string) error {
 		app.Size(unit.Dp(900), unit.Dp(600)),
 	)
 
-	// Background-goroutine → UI-goroutine handoff channel. Whatsmeow event
-	// integration lands in a subsequent commit; the channel + handler are
-	// wired now so the frame loop's draining behavior is exercised from
-	// day one.
+	// Background-goroutine → UI-goroutine handoff channel.
 	incoming := make(chan wa.MessageEvent, incomingBuffer)
-	_ = wa.Handler{ // referenced by type so the package import is used now
-		Store:  s,
-		Out:    incoming,
-		Notify: w.Invalidate,
+
+	// whatsmeow client + handler. Skipped in -no-connect mode so the UI
+	// can be exercised offline against the local store.
+	if !noConnect {
+		sessionPath := sessionDBPath(dbPath)
+		waCli, err := wa.New(ctx, sessionPath)
+		if err != nil {
+			return fmt.Errorf("wa.New: %w", err)
+		}
+		defer func() { _ = waCli.Close() }()
+
+		handler := &wa.Handler{
+			Store:  s,
+			Out:    incoming,
+			Notify: w.Invalidate,
+			Logger: func(err error) { log.Println("wa.Handler:", err) },
+		}
+		waCli.AddEventHandler(handler.Adapter(ctx))
+
+		if waCli.NeedsPairing() {
+			qrCh, err := waCli.QRChannel(ctx)
+			if err != nil {
+				return fmt.Errorf("wa.QRChannel: %w", err)
+			}
+			go renderQRs(qrCh)
+		}
+
+		// Connect off the UI goroutine so the window paints immediately;
+		// the handshake can take a moment over a flaky connection.
+		go func() {
+			if err := waCli.Connect(); err != nil {
+				log.Println("wa.Connect:", err)
+			}
+		}()
+	} else {
+		log.Println("wachat: -no-connect set; running offline against", dbPath)
 	}
 
 	// View callbacks translate UI events back into state mutations. The
@@ -133,6 +166,40 @@ func drainIncoming(in <-chan wa.MessageEvent, st *ui.State) {
 			st.OnIncoming(ev)
 		default:
 			return
+		}
+	}
+}
+
+// sessionDBPath derives the whatsmeow session DB path from the wachat DB
+// path: "wachat.db" → "wachat-session.db". The session lives alongside
+// the user's message store but in a separate file so either can be wiped
+// independently.
+func sessionDBPath(dbPath string) string {
+	if strings.HasSuffix(dbPath, ".db") {
+		return strings.TrimSuffix(dbPath, ".db") + "-session.db"
+	}
+	return dbPath + "-session"
+}
+
+// renderQRs prints incoming QR pairing codes to stdout using qrterminal's
+// half-block renderer (twice as dense as the full-block one — fits in a
+// typical terminal). The pairing window stays open until whatsmeow
+// closes the channel ("success" or "timeout").
+func renderQRs(ch <-chan wa.QRItem) {
+	for item := range ch {
+		switch item.Event {
+		case "code":
+			fmt.Println()
+			fmt.Println("Scan this QR with WhatsApp on your phone (Settings → Linked Devices):")
+			qrterminal.GenerateHalfBlock(item.Code, qrterminal.L, os.Stdout)
+		case "success":
+			fmt.Println("wachat: paired successfully")
+			return
+		case "timeout":
+			fmt.Println("wachat: QR pairing timed out — restart wachat to try again")
+			return
+		default:
+			fmt.Println("wachat: QR pairing event:", item.Event)
 		}
 	}
 }

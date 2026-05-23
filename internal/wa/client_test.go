@@ -4,6 +4,8 @@ import (
 	"context"
 	"path/filepath"
 	"testing"
+
+	"go.mau.fi/whatsmeow"
 )
 
 func newTempClient(t *testing.T) *Client {
@@ -56,5 +58,33 @@ func TestAddEventHandler_RegistersBeforeConnect(t *testing.T) {
 	id := c.AddEventHandler(func(any) {})
 	if id == 0 {
 		t.Error("AddEventHandler returned id=0; whatsmeow uses 0 as sentinel for not-registered")
+	}
+}
+
+func TestAdaptQRChannel_ForwardsItemsAndClosesOnInputClose(t *testing.T) {
+	in := make(chan whatsmeow.QRChannelItem, 3)
+	in <- whatsmeow.QRChannelItem{Event: "code", Code: "abc"}
+	in <- whatsmeow.QRChannelItem{Event: "code", Code: "def"}
+	in <- whatsmeow.QRChannelItem{Event: "success"}
+	close(in)
+
+	out := adaptQRChannel(in)
+
+	var got []QRItem
+	for item := range out {
+		got = append(got, item)
+	}
+	want := []QRItem{
+		{Event: "code", Code: "abc"},
+		{Event: "code", Code: "def"},
+		{Event: "success"},
+	}
+	if len(got) != len(want) {
+		t.Fatalf("got %d items, want %d (%+v)", len(got), len(want), got)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("item[%d] = %+v, want %+v", i, got[i], want[i])
+		}
 	}
 }
