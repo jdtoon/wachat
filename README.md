@@ -77,9 +77,14 @@ Tracks [`CLAUDE.md §12`](./CLAUDE.md#12-status--next-steps).
 - [x] Event handler → channel → notify pipeline (persist-first, non-blocking send)
 - [x] Gio frame loop + two-pane layout (chat list | messages)
 - [x] Virtualized chat list — bounded by viewport regardless of total
-- [x] Virtualized message view + bubble rendering
-- [x] whatsmeow connect + QR pairing wired into main.go
+- [x] Virtualized message view + bubble rendering (newest-at-bottom, grouping)
+- [x] whatsmeow connect + in-window QR pairing
 - [x] Auto-page older messages on scroll-near-end
+- [x] Send text end-to-end (composer + optimistic bubble)
+- [x] Full-text search across all history (SQLite FTS5)
+- [x] Jump-to-message from search hits (PageAround)
+- [x] Pairing state machine + connection banner + auto-reconnect
+- [x] Dark mode + density toggle + narrow-window collapse + persisted settings
 - [x] Lazy media cache + visibility tracker (see `internal/media`)
 - [x] Perf measurement harness — `make bench` (see Performance budget below)
 
@@ -91,20 +96,24 @@ Targets:
 - Sub-second cold start on a warm OS file cache
 - No frame hitches scrolling a 100k-message chat
 
-Measured via `make bench` (100k seeded messages, Intel Core Ultra 7 258V,
-Windows 11, pure-Go build):
+Measured via `make bench` at v0.1.0 (100k seeded messages, Intel Core
+Ultra 7 258V, Windows 11, pure-Go build):
 
 | Metric                  | Result                        |
 |-------------------------|-------------------------------|
-| `store.Open`            | ~5 ms                         |
-| Go heap after 100k msgs | ~0.5 MB (independent of N)    |
+| `store.Open`            | ~6 ms                         |
+| Go heap after 100k msgs | ~0.5 MB (**flat with N**)     |
 | Go runtime `Sys` (RSS≈) | ~16 MB                        |
-| First keyset page (50)  | ~520 µs                       |
-| Deep keyset page (90%)  | ~12 ms (cold index pages)     |
+| First keyset page (50)  | ~1 ms                         |
+| Deep keyset page (90%)  | ~20 ms (cold index pages)     |
+| Bulk insert             | ~2.5k msgs/s (incl. FTS5)     |
 
-The flat heap line is the load-bearing measurement: it proves the
+The flat heap line is the load-bearing measurement — it proves the
 "memory must be independent of history size" constraint from
-[`CLAUDE.md §2`](./CLAUDE.md#2-non-negotiable-constraints).
+[`CLAUDE.md §2`](./CLAUDE.md#2-non-negotiable-constraints). FTS5
+indexing on insert is the headline cost between v0.0.1 and v0.0.5
+(seed throughput dropped from ~10k msgs/s to ~2.5k); both numbers are
+far above real-world inbound message rates.
 
 ## Contributing
 

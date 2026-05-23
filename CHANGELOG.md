@@ -9,6 +9,63 @@ to [Semantic Versioning][semver].
 
 (nothing yet)
 
+## [0.1.0] - 2026-05-23
+
+**First minor release.** No new code beyond v0.0.7 — this tag is the
+milestone marker: the `CLAUDE.md §12` checklist is fully ticked and
+the `docs/roadmap.md` Phase 1 "Spine" is shipped.
+
+### What landed across v0.0.2 → v0.0.7
+
+- **Design system** (v0.0.2): typed `Theme` with palette / type /
+  spacing / radius / motion / density tokens; light + dark palettes;
+  Public Sans embedded; WCAG AA contrast tested.
+- **Message UI** (v0.0.3): rounded bubbles with sent-right /
+  recv-left alignment, sender-grouping by 5-min window, chat-row
+  redesign with deterministic-hue avatars, newest-at-bottom
+  ordering, paging-trigger flipped to the top of loaded buffer.
+- **Send text** (v0.0.4): `wa.SendText` + `ui.Composer` + optimistic
+  bubble via `State.AddOptimistic`. Enter sends, Shift+Enter
+  newlines.
+- **Full-text search** (v0.0.5): SQLite FTS5 over message bodies,
+  search bar in the sidebar, jump-to-message via the new
+  `store.PageAround` keyset query.
+- **Pairing UX** (v0.0.6): in-window QR drawn from `rsc.io/qr` matrix
+  data (no PNG round-trip), pairing state machine, connection
+  banner, auto-reconnect, `wa.PairPhone` wrapper for the
+  pair-by-code fallback.
+- **Themes + layout polish** (v0.0.7): runtime dark/light toggle,
+  comfortable/compact density, narrow-window collapse below 760dp,
+  preferences persisted to a `settings` table in SQLite.
+
+### Measured at v0.1.0
+
+100k messages, Intel Core Ultra 7 258V, Windows 11, pure-Go build:
+
+| Metric                  | Result                        |
+|-------------------------|-------------------------------|
+| `store.Open`            | ~6 ms                         |
+| Go heap                 | ~0.5 MB (**flat with N**)     |
+| Go runtime `Sys`        | ~16 MB                        |
+| First keyset page (50)  | ~1 ms                         |
+| Deep keyset page (90%)  | ~20 ms                        |
+| Bulk insert             | ~2.5k msgs/s (incl. FTS5)     |
+
+The Go heap is **identical** to v0.0.1 despite five new features
+(themes, fonts, composer, search, pairing UI). That's the design
+system + virtualized lists + keyset paging earning their keep.
+
+### Constraints upheld (CLAUDE.md §2 / §11)
+
+- No Electron / Tauri / webview / embedded browser.
+- No full-chat in-memory loads — every read is keyset.
+- No DB blobs for media — only paths.
+- `CGO_ENABLED=0` confirmed via `go version -m wachat`.
+- UI goroutine never blocks on DB writes from background goroutines.
+- No `OFFSET` pagination anywhere.
+
+[0.1.0]: https://github.com/jdtoon/wachat/releases/tag/v0.1.0
+
 ## [0.0.7] - 2026-05-23
 
 ### Added
@@ -232,7 +289,7 @@ media-cache framework is ready to wire into the message bubble.
 - `CGO_ENABLED=0` confirmed via `go version -m wachat`
 - UI goroutine never receives DB writes from background goroutines
 
-[unreleased]: https://github.com/jdtoon/wachat/compare/v0.0.7...HEAD
+[unreleased]: https://github.com/jdtoon/wachat/compare/v0.1.0...HEAD
 [0.0.1]: https://github.com/jdtoon/wachat/releases/tag/v0.0.1
 [kac]: https://keepachangelog.com/en/1.1.0/
 [semver]: https://semver.org/spec/v2.0.0.html

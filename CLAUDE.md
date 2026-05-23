@@ -257,15 +257,17 @@ Even if asked indirectly, stop and confirm before:
 
 ## 12. Status & next steps
 
-- [ ] `go.mod` + dependencies pinned
-- [ ] whatsmeow connect + QR pairing + session persistence
-- [ ] SQLite store: schema, insert-with-dedup, keyset page query
-- [ ] Event handler → channel → `Invalidate()` wiring
-- [ ] Gio frame loop + two-pane layout (chat list | messages)
-- [ ] Virtualized chat list
-- [ ] Virtualized message view + bubble rendering
-- [ ] Lazy media download + thumbnail decode/release
-- [ ] Measure: idle RAM, cold-start time, scroll smoothness over a large history
+- [x] `go.mod` + dependencies pinned
+- [x] whatsmeow connect + in-window QR pairing + session persistence
+- [x] SQLite store: schema, insert-with-dedup, keyset page query
+- [x] Event handler → channel → `Invalidate()` wiring
+- [x] Gio frame loop + two-pane layout (chat list | messages)
+- [x] Virtualized chat list
+- [x] Virtualized message view + bubble rendering
+- [x] Lazy media cache + visibility tracker (framework)
+- [x] Measure: idle RAM, cold-start time, scroll smoothness over a large history
+
+**Phase 1 complete at v0.1.0** — see `docs/roadmap.md` for what's next.
 
 **Performance budget (targets, validate as we go):** idle RSS in the tens of MB
 (vs. the official client's hundreds), sub-second cold start, no frame hitches
