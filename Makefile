@@ -14,7 +14,7 @@ else
 EXE :=
 endif
 
-.PHONY: all help tidy fmt fmt-check vet test test-short cover check hooks build run clean
+.PHONY: all help tidy fmt fmt-check vet test test-short test-race cover check hooks build run clean
 
 all: check ## default: run the gate
 
@@ -38,17 +38,20 @@ fmt-check: ## fail if anything is unformatted
 vet: ## go vet
 	$(GO) vet ./...
 
-test: ## race-enabled tests
-	$(GO) test ./... -race -count=1
+test: ## run tests (works everywhere, no cgo required)
+	$(GO) test ./... -count=1
 
-test-short: ## quick tests (no race, skip long benchmarks)
+test-short: ## quick tests, skip long benchmarks
 	$(GO) test ./... -short -count=1
 
+test-race: ## race detector — requires a C toolchain (cgo). Opt-in.
+	CGO_ENABLED=1 $(GO) test ./... -race -count=1
+
 cover: ## coverage report
-	$(GO) test ./... -race -coverprofile=coverage.out
+	$(GO) test ./... -coverprofile=coverage.out
 	$(GO) tool cover -func=coverage.out | tail -1
 
-check: fmt-check vet test ## the gate — fmt, vet, race tests
+check: fmt-check vet test ## the gate — fmt, vet, tests
 
 hooks: ## install the local pre-commit hook
 	@bash scripts/install-hooks.sh

@@ -36,7 +36,7 @@ Requires **Go 1.22+**. No CI pipeline — every gate runs locally.
 
 ```bash
 make hooks   # one-time: installs the local pre-commit hook
-make check   # gofmt + go vet + go test ./... -race
+make check   # gofmt + go vet + go test ./...
 make run     # go run .
 make build   # produces stripped `wachat` binary
 ```

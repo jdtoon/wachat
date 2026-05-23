@@ -24,8 +24,8 @@ if [ -f go.mod ]; then
     echo "[pre-commit] go vet"
     go vet ./...
 
-    echo "[pre-commit] go test -race"
-    go test ./... -race -count=1
+    echo "[pre-commit] go test"
+    go test ./... -count=1
 fi
 
 # Heuristic: commits touching critical packages should also touch a *_test.go

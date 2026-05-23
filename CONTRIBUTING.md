@@ -25,11 +25,22 @@ There is no CI. Every gate runs on your machine.
 git clone https://github.com/jdtoon/wachat
 cd wachat
 make hooks   # one-time: installs scripts/pre-commit into .git/hooks
-make check   # gofmt -l + go vet + go test ./... -race -count=1
+make check   # gofmt -l + go vet + go test ./...
 ```
 
 `make check` is the same set of checks the pre-commit hook runs, so commits
-that pass locally won't surprise you later.
+that pass locally won't surprise you later. The release build is pure Go (no
+cgo), so the default test target is cgo-free too — it runs on any machine
+with just the Go toolchain.
+
+### Race detector
+
+`make test-race` runs the test suite under the Go race detector. The race
+detector requires cgo (a C toolchain — gcc / clang / mingw). It is
+**opt-in** and not part of `make check` so the gate works on stock Windows
+installs. If you're touching the goroutine handoff (`internal/wa`) or any
+shared state, please run `make test-race` on a machine that has cgo
+available.
 
 ### Useful targets
 
