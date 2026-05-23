@@ -11,7 +11,13 @@ import (
 // WAID is whatsmeow's per-message identifier and is the dedup key — see
 // CLAUDE.md §7. TS is unix-milliseconds. MediaPath, if non-empty, points to
 // a file on disk in the media/ directory; bytes are never stored in the DB.
+//
+// ID is the SQLite rowid. It is populated by reads and ignored by Insert
+// (the database assigns it). The (TS, ID) pair is the keyset cursor used
+// by PageOlder to avoid the duplicate / skip hazard when two messages
+// share a millisecond.
 type Message struct {
+	ID        int64
 	WAID      string
 	ChatJID   string
 	SenderJID string
