@@ -124,13 +124,19 @@ func run(dbPath string, noConnect bool) error {
 	}
 
 	// View callbacks translate UI events back into state mutations. The
-	// SelectChat path does a small keyset read (~1ms over 100k history per
-	// our bench) on the UI goroutine — well under one frame. We will move
-	// the load off the UI goroutine if measurement ever shows it costs.
+	// SelectChat / LoadOlder paths do a small keyset read (~1ms over 100k
+	// history per our bench) on the UI goroutine — well under one frame.
+	// We will move the load off the UI goroutine if measurement ever
+	// shows it costs.
 	callbacks := ui.ViewCallbacks{
 		OnSelectChat: func(jid string) {
 			if err := state.SelectChat(ctx, jid); err != nil {
 				log.Println("SelectChat:", err)
+			}
+		},
+		OnNearEnd: func() {
+			if _, err := state.LoadOlder(ctx); err != nil {
+				log.Println("LoadOlder:", err)
 			}
 		},
 	}

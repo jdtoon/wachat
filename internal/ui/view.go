@@ -18,10 +18,17 @@ import (
 // across frames. Lives alongside State (the reducer) but kept separate so
 // the reducer stays Gio-free and easy to unit-test.
 type View struct {
-	chatList   widget.List
-	msgList    widget.List
-	chatClicks []widget.Clickable
+	chatList    widget.List
+	msgList     widget.List
+	chatClicks  []widget.Clickable
+	prevNearEnd bool // last frame's "near the end of loaded window" state
 }
+
+// NearEndThreshold is the number of rows from the end of the loaded
+// message window at which we fire OnNearEnd to keyset-page older
+// history. Tuned so a typical scroll velocity has a page ready before
+// the user reaches the bottom of the loaded buffer.
+const NearEndThreshold = 5
 
 // NewView constructs a View with sensible defaults.
 func NewView() *View {
@@ -36,7 +43,14 @@ func NewView() *View {
 // non-pure work) is the frame loop's job; the View only translates UI
 // events into requests.
 type ViewCallbacks struct {
+	// OnSelectChat fires when the user clicks a chat row.
 	OnSelectChat func(jid string)
+	// OnNearEnd fires once when the message list scrolls to within
+	// NearEndThreshold rows of the end of the loaded buffer — the
+	// caller should LoadOlder() in response. Re-fires only after the
+	// scroll position leaves the trigger zone and re-enters it (e.g.
+	// after a successful page load extends the buffer).
+	OnNearEnd func()
 }
 
 // Layout renders the two-pane view: chat list on the left (fixed 300dp),
@@ -64,7 +78,7 @@ func (v *View) Layout(gtx layout.Context, th *material.Theme, st *State, cb View
 		}
 	}
 
-	return layout.Flex{Axis: layout.Horizontal}.Layout(gtx,
+	dims := layout.Flex{Axis: layout.Horizontal}.Layout(gtx,
 		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 			gtx.Constraints.Max.X = gtx.Dp(unit.Dp(300))
 			gtx.Constraints.Min.X = gtx.Constraints.Max.X
@@ -75,6 +89,35 @@ func (v *View) Layout(gtx layout.Context, th *material.Theme, st *State, cb View
 			return v.layoutMessages(gtx, th, st)
 		}),
 	)
+
+	// Pagination trigger: fire on the leading edge of "near end" so we
+	// don't spam OnNearEnd every frame the user lingers in the zone. The
+	// caller's LoadOlder will extend Messages and the next frame will
+	// recompute — false→true transitions only.
+	if cb.OnNearEnd != nil && st.SelectedChat != "" {
+		nearEnd := isNearEnd(v.msgList.Position, len(st.Messages), NearEndThreshold)
+		if nearEnd && !v.prevNearEnd {
+			cb.OnNearEnd()
+		}
+		v.prevNearEnd = nearEnd
+	} else {
+		v.prevNearEnd = false
+	}
+
+	return dims
+}
+
+// isNearEnd reports whether the list's last visible row sits within
+// threshold rows of the end of the loaded buffer.
+//
+// Pure function for testability — kept package-private. Position values
+// come from widget.List after a layout pass.
+func isNearEnd(pos layout.Position, total, threshold int) bool {
+	if total == 0 || pos.Count == 0 {
+		return false
+	}
+	lastVisible := pos.First + pos.Count
+	return lastVisible >= total-threshold
 }
 
 func (v *View) layoutChatList(gtx layout.Context, th *material.Theme, st *State) layout.Dimensions {
