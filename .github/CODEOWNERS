@@ -1,0 +1,11 @@
+# Default code owner for everything in this repository.
+# Used by GitHub to auto-request review on pull requests.
+*       @jdtoon
+
+# The protocol boundary is sensitive to whatsmeow API drift — call it
+# out explicitly so future maintainers know to verify signatures against
+# the godoc when this changes.
+/internal/wa/                @jdtoon
+
+# CLAUDE.md is project-context; changes here have wide blast radius.
+/CLAUDE.md                   @jdtoon

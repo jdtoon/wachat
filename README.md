@@ -1,5 +1,11 @@
 # wachat
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
+[![Go version](https://img.shields.io/github/go-mod/go-version/jdtoon/wachat)](./go.mod)
+[![Latest release](https://img.shields.io/github/v/release/jdtoon/wachat?display_name=tag&sort=semver)](https://github.com/jdtoon/wachat/releases)
+[![Repo size](https://img.shields.io/github/repo-size/jdtoon/wachat)](https://github.com/jdtoon/wachat)
+[![Last commit](https://img.shields.io/github/last-commit/jdtoon/wachat/main)](https://github.com/jdtoon/wachat/commits/main)
+
 A lean, native desktop WhatsApp client written in Go. No Electron, no webview,
 no bundled browser. One process, low RAM, fast cold start.
 
