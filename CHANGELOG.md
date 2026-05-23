@@ -9,6 +9,36 @@ to [Semantic Versioning][semver].
 
 (nothing yet)
 
+## [0.0.4] - 2026-05-23
+
+### Added
+
+- **`wa.SendText(ctx, chatJID, body)`**: thin wrapper around
+  whatsmeow's `SendMessage` that returns the server-assigned message
+  ID. Signatures verified against `pkg.go.dev/go.mau.fi/whatsmeow`.
+- **`wa.OwnJID()`**: nil-safe accessor for the paired device's JID.
+  Populates `State.OwnJID` so bubble alignment switches off the real
+  comparison once paired.
+- **`ui.Composer`** widget: multiline `widget.Editor` + send button.
+  Enter sends; Shift+Enter inserts a newline. Trim + clear on submit.
+- **Conversation pane layout**: header (chat name strip) ↓ messages
+  (flexed) ↓ composer. Surface-colored composer with a top divider.
+- **`State.AddOptimistic(ctx, waID, chatJID, body, ts)`**: persists +
+  folds into the view-model so an outgoing bubble appears
+  immediately. Reuses the existing WAID dedup path.
+- **`ViewCallbacks.OnSend(chatJID, body)`**: the new request surface
+  the caller wires to send + optimistic insert.
+
+### Known follow-up
+
+The optimistic `waID` is currently a placeholder (`"optimistic-<ts>"`),
+so a redelivered receipt with the server-assigned ID will briefly
+double-bubble before dedup converges. A v0.0.4.x patch will mint
+`whatsmeow.GenerateMessageID` and pass it as `SendRequestExtra.ID`
+so the IDs match on first arrival.
+
+[0.0.4]: https://github.com/jdtoon/wachat/releases/tag/v0.0.4
+
 ## [0.0.3] - 2026-05-23
 
 ### Added
@@ -113,7 +143,7 @@ media-cache framework is ready to wire into the message bubble.
 - `CGO_ENABLED=0` confirmed via `go version -m wachat`
 - UI goroutine never receives DB writes from background goroutines
 
-[unreleased]: https://github.com/jdtoon/wachat/compare/v0.0.3...HEAD
+[unreleased]: https://github.com/jdtoon/wachat/compare/v0.0.4...HEAD
 [0.0.1]: https://github.com/jdtoon/wachat/releases/tag/v0.0.1
 [kac]: https://keepachangelog.com/en/1.1.0/
 [semver]: https://semver.org/spec/v2.0.0.html
