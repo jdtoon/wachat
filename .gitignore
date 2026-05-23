@@ -1,7 +1,8 @@
 # Built binaries
 /wachat
 /wachat.exe
-/dist/
+/dist/wachat-*
+/dist/SHA256SUMS*
 
 # Local SQLite database + WAL/SHM sidecars
 /wachat.db

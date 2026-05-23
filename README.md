@@ -45,8 +45,30 @@ gate runs locally.
 make hooks   # one-time: installs the local pre-commit hook
 make check   # gofmt + go vet + go test ./...
 make run     # go run .
-make build   # produces stripped `wachat` binary
+make build   # produces stripped `wachat` binary (host platform)
+make dist    # cross-compile for windows/amd64 + windows/arm64 into dist/
+make publish # upload dist/ artifacts to the matching GitHub release
 ```
+
+### Pre-built binaries
+
+Each tagged release on the [Releases page](https://github.com/jdtoon/wachat/releases)
+ships **Windows amd64 + Windows arm64** executables, built directly from
+this codebase. Verify with the `SHA256SUMS` file attached to the same
+release.
+
+Linux and macOS binaries are not yet attached automatically — Gio uses
+cgo on those platforms, so the cross-build needs a C toolchain we
+don't carry on the Windows host. Two options:
+
+1. **Build from source** — `git clone && make build` on the target
+   machine. Pure Go on Windows; on Linux you'll need `libx11-dev`
+   and friends (see the disabled CI workflow for the full apt list).
+2. **Enable the optional release workflow** at
+   [`.github/workflows/release.yml.disabled`](./.github/workflows/release.yml.disabled).
+   It builds the full Linux / macOS / Windows matrix on GitHub-hosted
+   runners on every `v*.*.*` tag and attaches the binaries. Rename
+   it to `release.yml` to turn on; rename back to disable.
 
 First run pairs with your phone via QR code displayed in the terminal
 (companion-device flow, same as WhatsApp Web). The session is persisted to

@@ -61,8 +61,30 @@ check: fmt-check vet test ## the gate — fmt, vet, tests
 hooks: ## install the local pre-commit hook
 	@bash scripts/install-hooks.sh
 
-build: ## build a stripped release binary
-	$(GO) build -ldflags="$(LDFLAGS)" -o $(BINARY)$(EXE) .
+build: ## build a stripped release binary for the host platform
+	$(GO) build -ldflags="$(LDFLAGS) -X main.Version=$(VERSION)" -o $(BINARY)$(EXE) .
+
+# VERSION is embedded into the binary via -ldflags. Defaults to the
+# most recent annotated tag; override at the command line for snapshot
+# builds (`make build VERSION=dev`).
+VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
+
+dist: ## cross-compile release artifacts into dist/ for the current host's reachable targets
+	@mkdir -p dist
+	@echo "building $(VERSION) for windows/amd64..."
+	@CGO_ENABLED=0 GOOS=windows GOARCH=amd64 $(GO) build -ldflags="$(LDFLAGS) -X main.Version=$(VERSION)" -o dist/$(BINARY)-$(VERSION)-windows-amd64.exe .
+	@echo "building $(VERSION) for windows/arm64..."
+	@CGO_ENABLED=0 GOOS=windows GOARCH=arm64 $(GO) build -ldflags="$(LDFLAGS) -X main.Version=$(VERSION)" -o dist/$(BINARY)-$(VERSION)-windows-arm64.exe .
+	@echo "(linux/macos builds need a C toolchain — Gio uses cgo on those platforms;"
+	@echo " run \"make dist\" on a Linux/macOS host to add them, or enable the optional"
+	@echo " release workflow at .github/workflows/release.yml.disabled)"
+	@cd dist && sha256sum $(BINARY)-$(VERSION)-* > SHA256SUMS-$(VERSION).txt
+	@ls -la dist/
+
+publish: dist ## upload dist/ artifacts to the matching GitHub release
+	@gh release upload $(VERSION) dist/$(BINARY)-$(VERSION)-* dist/SHA256SUMS-$(VERSION).txt --clobber
+
+.PHONY: dist publish
 
 run: ## go run the app
 	$(GO) run .

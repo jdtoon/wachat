@@ -1,0 +1,87 @@
+# Optional release workflow — DISABLED by default (filename ends in
+# `.disabled` so GitHub Actions does not pick it up).
+#
+# wachat's quality gates are local (`make check` + the pre-commit
+# shim). This file exists only for one job: cross-platform binary
+# builds, which cannot run locally on a single host because Gio uses
+# cgo on Linux and macOS. When you want Linux/macOS executables on a
+# release, rename this file to `release.yml`, push the tag, and CI
+# will build the matrix and attach the artifacts.
+#
+# To enable:
+#   git mv .github/workflows/release.yml.disabled .github/workflows/release.yml
+#   git commit -m "chore: enable release workflow"
+#   git push
+#
+# To disable again, reverse the rename.
+
+name: release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: build (${{ matrix.os }} / ${{ matrix.arch }})
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: linux,   arch: amd64, runner: ubuntu-latest,  ext: "" }
+          - { os: linux,   arch: arm64, runner: ubuntu-latest,  ext: "" }
+          - { os: windows, arch: amd64, runner: windows-latest, ext: ".exe" }
+          - { os: windows, arch: arm64, runner: windows-latest, ext: ".exe" }
+          - { os: darwin,  arch: amd64, runner: macos-latest,   ext: "" }
+          - { os: darwin,  arch: arm64, runner: macos-latest,   ext: "" }
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.25"
+
+      # Linux Gio targets need X11/Vulkan headers via apt; pre-installed
+      # on the ubuntu-latest runner image.
+      - name: Install Linux deps
+        if: matrix.os == 'linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libx11-dev libxkbcommon-dev libxkbcommon-x11-dev libgles2-mesa-dev libegl1-mesa-dev libffi-dev libxcursor-dev libwayland-dev libvulkan-dev
+
+      - name: Build
+        env:
+          GOOS: ${{ matrix.os }}
+          GOARCH: ${{ matrix.arch }}
+          CGO_ENABLED: "1"
+          VERSION: ${{ github.ref_name }}
+        run: |
+          mkdir -p dist
+          go build -ldflags="-s -w -X main.Version=${VERSION}" \
+            -o dist/wachat-${VERSION}-${GOOS}-${GOARCH}${{ matrix.ext }} .
+
+      - name: Upload to release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release upload "${GITHUB_REF_NAME}" \
+            dist/wachat-${GITHUB_REF_NAME}-${{ matrix.os }}-${{ matrix.arch }}${{ matrix.ext }} \
+            --clobber
+
+  checksums:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Aggregate SHA256SUMS
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          mkdir tmp && cd tmp
+          gh release download "${GITHUB_REF_NAME}" --repo "${{ github.repository }}" --pattern "wachat-${GITHUB_REF_NAME}-*"
+          sha256sum wachat-${GITHUB_REF_NAME}-* > SHA256SUMS
+          gh release upload "${GITHUB_REF_NAME}" SHA256SUMS --clobber --repo "${{ github.repository }}"
