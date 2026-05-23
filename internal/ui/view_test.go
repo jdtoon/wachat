@@ -8,21 +8,15 @@ import (
 
 	"github.com/jdtoon/wachat/internal/store"
 
-	"gioui.org/font/gofont"
 	"gioui.org/layout"
 	"gioui.org/op"
-	"gioui.org/text"
 	"gioui.org/widget/material"
 )
 
-// newTestTheme returns a material.Theme with a real font shaper so list
-// rows have non-zero height (needed for the virtualization assertions to
-// be meaningful).
-func newTestTheme() *material.Theme {
-	th := material.NewTheme()
-	th.Shaper = text.NewShaper(text.WithCollection(gofont.Collection()))
-	return th
-}
+// newTestTheme returns a wachat Theme bound to the light palette. The
+// embedded Public Sans face collection gives realistic row heights so
+// the virtualization assertions are meaningful.
+func newTestTheme() *Theme { return NewTheme(LightPalette) }
 
 // testGtx is a headless layout.Context with the given pixel size.
 func testGtx(w, h int) layout.Context {
@@ -106,15 +100,16 @@ func TestView_ChatListVirtualizes_OnlyVisibleRowsBuilt(t *testing.T) {
 	// Re-implement just the chat-list pass with an instrumented builder.
 	// (We don't go through View.Layout because that would also run
 	// non-instrumented code paths and risk under-counting visible rows.)
-	_ = material.List(th, &v.chatList).Layout(gtx, total, func(gtx layout.Context, i int) layout.Dimensions {
+	mat := th.Material()
+	_ = material.List(mat, &v.chatList).Layout(gtx, total, func(gtx layout.Context, i int) layout.Dimensions {
 		calls++
 		// Mirror the height the production builder would produce so the
 		// list's visible-window calculation matches reality.
 		c := st.Chats[i]
 		return layout.Inset{Top: 8, Bottom: 8, Left: 12, Right: 12}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 			return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
-				layout.Rigid(material.Body1(th, displayName(c)).Layout),
-				layout.Rigid(material.Caption(th, chatSubtitle(c)).Layout),
+				layout.Rigid(material.Body1(mat, displayName(c)).Layout),
+				layout.Rigid(material.Caption(mat, chatSubtitle(c)).Layout),
 			)
 		})
 	})
@@ -150,11 +145,12 @@ func TestView_MessageListVirtualizes(t *testing.T) {
 	gtx := testGtx(900, 600)
 
 	var calls int
-	_ = material.List(th, &v.msgList).Layout(gtx, total, func(gtx layout.Context, i int) layout.Dimensions {
+	mat := th.Material()
+	_ = material.List(mat, &v.msgList).Layout(gtx, total, func(gtx layout.Context, i int) layout.Dimensions {
 		calls++
 		m := st.Messages[i]
 		return layout.Inset{Top: 4, Bottom: 4, Left: 12, Right: 12}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-			return material.Body1(th, m.Body).Layout(gtx)
+			return material.Body1(mat, m.Body).Layout(gtx)
 		})
 	})
 

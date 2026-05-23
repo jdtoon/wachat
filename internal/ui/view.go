@@ -59,8 +59,9 @@ type ViewCallbacks struct {
 // (CLAUDE.md §6).
 //
 // Layout reports dimensions and may invoke cb.OnSelectChat if the user
-// clicked a row this frame.
-func (v *View) Layout(gtx layout.Context, th *material.Theme, st *State, cb ViewCallbacks) layout.Dimensions {
+// clicked a row this frame. Colors, sizing, and motion all come from
+// th — never reference raw color literals in widget code.
+func (v *View) Layout(gtx layout.Context, th *Theme, st *State, cb ViewCallbacks) layout.Dimensions {
 	// Keep the clickables slice in sync with the chat slice. Reallocate
 	// only when the count changes — Clickable widgets must persist across
 	// frames so their internal click state is preserved.
@@ -78,13 +79,19 @@ func (v *View) Layout(gtx layout.Context, th *material.Theme, st *State, cb View
 		}
 	}
 
+	// Paint the canvas behind everything so material widgets that don't
+	// fill their backgrounds (most of them) sit on the right surface.
+	paintBackground(gtx, th.Palette.Canvas)
+
 	dims := layout.Flex{Axis: layout.Horizontal}.Layout(gtx,
 		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 			gtx.Constraints.Max.X = gtx.Dp(unit.Dp(300))
 			gtx.Constraints.Min.X = gtx.Constraints.Max.X
 			return v.layoutChatList(gtx, th, st)
 		}),
-		layout.Rigid(verticalDivider),
+		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+			return verticalDivider(gtx, th.Palette.Divider)
+		}),
 		layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
 			return v.layoutMessages(gtx, th, st)
 		}),
@@ -120,34 +127,44 @@ func isNearEnd(pos layout.Position, total, threshold int) bool {
 	return lastVisible >= total-threshold
 }
 
-func (v *View) layoutChatList(gtx layout.Context, th *material.Theme, st *State) layout.Dimensions {
-	return material.List(th, &v.chatList).Layout(gtx, len(st.Chats), func(gtx layout.Context, i int) layout.Dimensions {
+func (v *View) layoutChatList(gtx layout.Context, th *Theme, st *State) layout.Dimensions {
+	mat := th.Material()
+	return material.List(mat, &v.chatList).Layout(gtx, len(st.Chats), func(gtx layout.Context, i int) layout.Dimensions {
 		c := st.Chats[i]
 		return v.chatClicks[i].Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 			return layout.Inset{
-				Top: unit.Dp(8), Bottom: unit.Dp(8),
-				Left: unit.Dp(12), Right: unit.Dp(12),
+				Top: th.RowPad(), Bottom: th.RowPad(),
+				Left: th.Spacing.M, Right: th.Spacing.M,
 			}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+				name := material.Label(mat, th.Type.Title, displayName(c))
+				name.Color = th.Palette.TextPrimary
+				sub := material.Label(mat, th.Type.Meta, chatSubtitle(c))
+				sub.Color = th.Palette.TextSecondary
 				return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
-					layout.Rigid(material.Body1(th, displayName(c)).Layout),
-					layout.Rigid(material.Caption(th, chatSubtitle(c)).Layout),
+					layout.Rigid(name.Layout),
+					layout.Rigid(sub.Layout),
 				)
 			})
 		})
 	})
 }
 
-func (v *View) layoutMessages(gtx layout.Context, th *material.Theme, st *State) layout.Dimensions {
+func (v *View) layoutMessages(gtx layout.Context, th *Theme, st *State) layout.Dimensions {
+	mat := th.Material()
 	if st.SelectedChat == "" {
-		return layout.Center.Layout(gtx, material.Body1(th, "Select a chat").Layout)
+		empty := material.Label(mat, th.Type.Body, "Select a chat")
+		empty.Color = th.Palette.TextSecondary
+		return layout.Center.Layout(gtx, empty.Layout)
 	}
-	return material.List(th, &v.msgList).Layout(gtx, len(st.Messages), func(gtx layout.Context, i int) layout.Dimensions {
+	return material.List(mat, &v.msgList).Layout(gtx, len(st.Messages), func(gtx layout.Context, i int) layout.Dimensions {
 		m := st.Messages[i]
 		return layout.Inset{
-			Top: unit.Dp(4), Bottom: unit.Dp(4),
-			Left: unit.Dp(12), Right: unit.Dp(12),
+			Top: th.Spacing.XS, Bottom: th.Spacing.XS,
+			Left: th.Spacing.M, Right: th.Spacing.M,
 		}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-			return material.Body1(th, m.Body).Layout(gtx)
+			body := material.Label(mat, th.Type.Body, m.Body)
+			body.Color = th.Palette.TextPrimary
+			return body.Layout(gtx)
 		})
 	})
 }
@@ -189,12 +206,22 @@ func humanTime(t time.Time) string {
 	}
 }
 
-// verticalDivider draws a 1dp-wide grey line between the panes.
-func verticalDivider(gtx layout.Context) layout.Dimensions {
+// verticalDivider draws a 1dp-wide line of c between the panes.
+func verticalDivider(gtx layout.Context, c color.NRGBA) layout.Dimensions {
 	w := gtx.Dp(unit.Dp(1))
 	h := gtx.Constraints.Max.Y
 	defer clip.Rect(image.Rect(0, 0, w, h)).Push(gtx.Ops).Pop()
-	paint.ColorOp{Color: color.NRGBA{R: 0xcc, G: 0xcc, B: 0xcc, A: 0xff}}.Add(gtx.Ops)
+	paint.ColorOp{Color: c}.Add(gtx.Ops)
 	paint.PaintOp{}.Add(gtx.Ops)
 	return layout.Dimensions{Size: image.Pt(w, h)}
+}
+
+// paintBackground fills the current constraints with c. Used to apply
+// the canvas color before the panes paint themselves; without this
+// material widgets that don't fill their backgrounds inherit black.
+func paintBackground(gtx layout.Context, c color.NRGBA) {
+	r := image.Rect(0, 0, gtx.Constraints.Max.X, gtx.Constraints.Max.Y)
+	defer clip.Rect(r).Push(gtx.Ops).Pop()
+	paint.ColorOp{Color: c}.Add(gtx.Ops)
+	paint.PaintOp{}.Add(gtx.Ops)
 }

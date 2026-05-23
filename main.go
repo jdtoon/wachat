@@ -16,11 +16,8 @@ import (
 	"strings"
 
 	"gioui.org/app"
-	"gioui.org/font/gofont"
 	"gioui.org/op"
-	"gioui.org/text"
 	"gioui.org/unit"
-	"gioui.org/widget/material"
 
 	"github.com/mdp/qrterminal/v3"
 
@@ -141,10 +138,9 @@ func run(dbPath string, noConnect bool) error {
 		},
 	}
 
-	// Theme. material.NewTheme is zero-arg in v0.10; the shaper is set on
-	// the returned value.
-	theme := material.NewTheme()
-	theme.Shaper = text.NewShaper(text.WithCollection(gofont.Collection()))
+	// Theme. Built from the wachat design tokens (docs/design.md §1).
+	// Dark-mode toggle lands in v0.0.7; for now we boot in light.
+	theme := ui.NewTheme(ui.LightPalette)
 
 	var ops op.Ops
 	for {
