@@ -65,10 +65,10 @@ wachat/
 
 Tracks [`CLAUDE.md §12`](./CLAUDE.md#12-status--next-steps).
 
-- [x] `go.mod` + initial dependency pinned (`modernc.org/sqlite`)
-- [ ] whatsmeow connect + QR pairing + session persistence
+- [x] `go.mod` + initial dependencies pinned (`modernc.org/sqlite`, `whatsmeow`)
+- [x] whatsmeow client wrapper (connect, QR pairing, session container)
 - [x] SQLite store: schema, insert-with-dedup, keyset page query
-- [ ] Event handler → channel → `Invalidate()` wiring
+- [x] Event handler → channel → notify pipeline (persist-first, non-blocking send)
 - [ ] Gio frame loop + two-pane layout (chat list | messages)
 - [ ] Virtualized chat list
 - [ ] Virtualized message view + bubble rendering
