@@ -59,7 +59,20 @@ Gaps: calls (events only), status (experimental), broadcast send (none).
 **Goal:** it runs, it's fast, the performance scaffolding is real from commit one.
 
 - [ ] `go.mod` + pinned deps (`whatsmeow`, `gioui.org`, `modernc.org/sqlite`)
-- [ ] whatsmeow connect + **QR pairing** + session persistence to SQLite
+- [ ] **Pairing — link to a real personal WhatsApp account** (companion-device
+      flow, identical to WhatsApp Web). This links the user's *actual* everyday
+      number; there is no separate/test account.
+  - [ ] whatsmeow connect with an empty device store on first run
+  - [ ] Subscribe to the QR channel; render the QR (regenerate as codes rotate)
+  - [ ] `[FREE]` **Pair-by-code fallback** — show the 8-char code to type into
+        the phone when scanning isn't convenient
+  - [ ] Handle pair-success: receive device credentials, persist to SQLite
+  - [ ] On subsequent launches, load the stored device and connect with **no QR**
+  - [ ] Handle logout / unlink / "removed from phone": clear session, return to
+        the pairing screen gracefully
+  - [ ] Pairing UI states: waiting → scanned → syncing history → ready
+  - Note: works with a personal account, but linking your real number is exactly
+    when the ToS/ban risk applies (CLAUDE.md §10). Keep behavior human-like.
 - [ ] Auto-reconnect + retry-receipt handling
 - [ ] SQLite store: schema, WAL, indexes, insert-with-dedup on `wa_id`
 - [ ] Event handler → non-blocking channel → `Invalidate()` wiring (CLAUDE.md §4/§8)
