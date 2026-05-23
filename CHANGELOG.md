@@ -9,6 +9,29 @@ to [Semantic Versioning][semver].
 
 (nothing yet)
 
+## [0.0.7] - 2026-05-23
+
+### Added
+
+- **Dark mode + light mode toggle**: ☾/☀ glyph in the conversation
+  header. Palette swaps instantly — no widget restyle, no asset
+  reload (the Theme is data).
+- **Density toggle**: ☰/≡ glyph for comfortable / compact.
+- **Narrow-window collapse**: under 760dp the layout flips to a
+  single pane (sidebar OR conversation), with a back arrow in the
+  conversation header to return to the chat list. Comes straight
+  from docs/design.md §2.
+- **Settings persistence**: tiny `settings` table in SQLite stores
+  `ui.theme` and `ui.density` so launches remember the user's choice.
+  New `store.GetSetting` / `SetSetting` helpers; 4 unit tests.
+
+### Changed
+
+- `ViewCallbacks` gains `OnToggleTheme`, `OnToggleDensity`, `OnBack`.
+- `View` now owns `themeBtn`, `densityBtn`, `backBtn` Clickables.
+
+[0.0.7]: https://github.com/jdtoon/wachat/releases/tag/v0.0.7
+
 ## [0.0.6] - 2026-05-23
 
 ### Added
@@ -209,7 +232,7 @@ media-cache framework is ready to wire into the message bubble.
 - `CGO_ENABLED=0` confirmed via `go version -m wachat`
 - UI goroutine never receives DB writes from background goroutines
 
-[unreleased]: https://github.com/jdtoon/wachat/compare/v0.0.6...HEAD
+[unreleased]: https://github.com/jdtoon/wachat/compare/v0.0.7...HEAD
 [0.0.1]: https://github.com/jdtoon/wachat/releases/tag/v0.0.1
 [kac]: https://keepachangelog.com/en/1.1.0/
 [semver]: https://semver.org/spec/v2.0.0.html
