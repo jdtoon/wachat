@@ -9,6 +9,37 @@ to [Semantic Versioning][semver].
 
 (nothing yet)
 
+## [0.0.5] - 2026-05-23
+
+### Added
+
+- **Full-text search** via SQLite FTS5. `messages_fts` is a content-
+  rowid'd virtual table over `messages`; AI/AD/AU triggers keep the
+  index in sync. unicode61 tokenizer with `remove_diacritics 2` so
+  `cafe` matches `café`.
+- **`store.Search(ctx, query, limit)`** returns ranked `SearchHit`s
+  with `snippet()` highlighting (FTS5 emits `[[…]]` tokens around
+  matches).
+- **`store.PageAround(ctx, chatJID, anchorID, before, after)`** loads
+  a window centered on a message — used by jump-to-message. Pure
+  keyset, no `OFFSET`.
+- **Search bar** widget in the sidebar header. Enter submits;
+  inline-styled overlay swaps in for the chat list when a search is
+  active.
+- **`State.Search`** and **`State.JumpToMessage`** plus
+  `ViewCallbacks.OnSearch` / `OnJumpToMessage` for the wiring.
+- Backfill on `store.Open` re-indexes any v0.0.4-era DBs whose
+  messages predate the FTS5 table.
+
+### Notes
+
+- FTS5 is verified present in our `modernc.org/sqlite` build.
+- Snippet rendering currently strips the `[[…]]` markers and renders
+  as plain TextSecondary; richer inline accent coloring waits on
+  Gio's text shaper supporting inline color runs.
+
+[0.0.5]: https://github.com/jdtoon/wachat/releases/tag/v0.0.5
+
 ## [0.0.4] - 2026-05-23
 
 ### Added
@@ -143,7 +174,7 @@ media-cache framework is ready to wire into the message bubble.
 - `CGO_ENABLED=0` confirmed via `go version -m wachat`
 - UI goroutine never receives DB writes from background goroutines
 
-[unreleased]: https://github.com/jdtoon/wachat/compare/v0.0.4...HEAD
+[unreleased]: https://github.com/jdtoon/wachat/compare/v0.0.5...HEAD
 [0.0.1]: https://github.com/jdtoon/wachat/releases/tag/v0.0.1
 [kac]: https://keepachangelog.com/en/1.1.0/
 [semver]: https://semver.org/spec/v2.0.0.html
