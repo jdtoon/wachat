@@ -25,6 +25,26 @@ func TestMediaTypeGlyph_TruthTable(t *testing.T) {
 	}
 }
 
+func TestLinkHost_ParsesURL(t *testing.T) {
+	if got := linkHost("https://example.com/some/path?q=1"); got != "example.com" {
+		t.Errorf("linkHost full URL = %q, want example.com", got)
+	}
+}
+
+func TestLinkHost_FallsBackToTruncatedString(t *testing.T) {
+	url := "not-a-valid-url-but-also-very-long-so-it-should-be-truncated-with-an-ellipsis"
+	got := linkHost(url)
+	if len(got) > 65 {
+		t.Errorf("linkHost should truncate long invalid URLs; got %d chars", len(got))
+	}
+}
+
+func TestLinkHost_Empty(t *testing.T) {
+	if got := linkHost(""); got != "" {
+		t.Errorf("linkHost('') = %q, want empty", got)
+	}
+}
+
 func TestNewThumbnailCache_NonNil(t *testing.T) {
 	c := NewThumbnailCache()
 	if c == nil {

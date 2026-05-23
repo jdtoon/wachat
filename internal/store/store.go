@@ -67,6 +67,10 @@ func Open(ctx context.Context, path string) (*Store, error) {
 		_ = db.Close()
 		return nil, fmt.Errorf("store: migrate chat-state: %w", err)
 	}
+	if err := migrateAddLinkPreviewColumns(ctx, db); err != nil {
+		_ = db.Close()
+		return nil, fmt.Errorf("store: migrate link-preview: %w", err)
+	}
 
 	// Backfill the FTS5 index for any existing rows that predate the
 	// virtual table (e.g. upgrading a v0.0.4 DB to v0.0.5+). Cheap when
@@ -134,6 +138,30 @@ func migrateAddReplyEditRevokeColumns(ctx context.Context, db *sql.DB) error {
 		{"quoted_sender", `ALTER TABLE messages ADD COLUMN quoted_sender TEXT`},
 		{"edited", `ALTER TABLE messages ADD COLUMN edited INTEGER NOT NULL DEFAULT 0`},
 		{"revoked", `ALTER TABLE messages ADD COLUMN revoked INTEGER NOT NULL DEFAULT 0`},
+	}
+	for _, c := range wanted {
+		if have[c.name] {
+			continue
+		}
+		if _, err := db.ExecContext(ctx, c.ddl); err != nil {
+			return fmt.Errorf("add %s: %w", c.name, err)
+		}
+	}
+	return nil
+}
+
+// migrateAddLinkPreviewColumns adds link_url / link_title / link_desc
+// on the messages table for DBs that predate v0.1.9.
+func migrateAddLinkPreviewColumns(ctx context.Context, db *sql.DB) error {
+	have, err := columnSet(ctx, db, "messages")
+	if err != nil {
+		return err
+	}
+	type col struct{ name, ddl string }
+	wanted := []col{
+		{"link_url", `ALTER TABLE messages ADD COLUMN link_url TEXT`},
+		{"link_title", `ALTER TABLE messages ADD COLUMN link_title TEXT`},
+		{"link_desc", `ALTER TABLE messages ADD COLUMN link_desc TEXT`},
 	}
 	for _, c := range wanted {
 		if have[c.name] {

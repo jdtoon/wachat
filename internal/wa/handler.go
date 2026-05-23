@@ -28,8 +28,17 @@ type MessageEvent struct {
 
 	// Media info — set when the message wraps an attachment. Body is
 	// already populated with the caption (if any).
-	MediaPath string // on-disk path (thumbnail; full-res on demand)
-	MediaType string // see MediaType* constants
+	MediaPath    string // on-disk path (thumbnail; full-res on demand)
+	MediaType    string // see MediaType* constants
+	DurationSecs uint32 // audio length
+	FileSize     uint64 // document or audio byte size
+	FileName     string // document filename
+
+	// Link preview info — populated from ExtendedTextMessage when
+	// the sender's message included a URL with metadata.
+	LinkURL   string
+	LinkTitle string
+	LinkDesc  string
 }
 
 // Persister is the subset of *store.Store the handler needs. Defined as
@@ -89,6 +98,9 @@ func (h *Handler) OnMessage(ctx context.Context, ev MessageEvent) error {
 		QuotedWAID:   ev.QuotedWAID,
 		QuotedBody:   ev.QuotedBody,
 		QuotedSender: ev.QuotedSender,
+		LinkURL:      ev.LinkURL,
+		LinkTitle:    ev.LinkTitle,
+		LinkDesc:     ev.LinkDesc,
 	}, !ev.FromMe)
 	if err != nil {
 		return fmt.Errorf("wa.Handler.OnMessage: persist: %w", err)
@@ -253,12 +265,23 @@ func fromWMMessage(e *events.Message) MessageEvent {
 	}
 	if mi := extractMedia(e.Message); mi.Type != "" {
 		ev.MediaType = mi.Type
+		ev.DurationSecs = mi.DurationSecs
+		ev.FileSize = mi.FileSize
+		ev.FileName = mi.FileName
 		if mi.Caption != "" {
 			ev.Body = mi.Caption
 		}
 		if path, err := writeThumbnail(ev.WAID, mi.ThumbnailJPEG); err == nil {
 			ev.MediaPath = path
 		}
+	}
+	// Link preview info from ExtendedTextMessage. We do this even if
+	// MediaType was set (e.g. a video with a link in the caption);
+	// the bubble code decides whether to render the card.
+	if ext := e.Message.GetExtendedTextMessage(); ext != nil {
+		ev.LinkURL = ext.GetMatchedText()
+		ev.LinkTitle = ext.GetTitle()
+		ev.LinkDesc = ext.GetDescription()
 	}
 	return ev
 }

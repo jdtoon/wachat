@@ -25,7 +25,10 @@ CREATE TABLE IF NOT EXISTS messages (
     quoted_body   TEXT,                 -- cached snippet of the quoted body
     quoted_sender TEXT,                 -- JID of the quoted message's sender
     edited        INTEGER NOT NULL DEFAULT 0,  -- 1 once the sender edited
-    revoked       INTEGER NOT NULL DEFAULT 0   -- 1 once delete-for-everyone
+    revoked       INTEGER NOT NULL DEFAULT 0,  -- 1 once delete-for-everyone
+    link_url      TEXT,                 -- URL detected in the message (for link previews)
+    link_title    TEXT,                 -- title from the link preview metadata
+    link_desc     TEXT                  -- description from the link preview metadata
 );
 
 -- Keyset paging hot path: WHERE chat_jid=? AND ts<? ORDER BY ts DESC LIMIT N.

@@ -3,6 +3,7 @@ package ui
 import (
 	"image"
 	"image/color"
+	neturl "net/url"
 	"sort"
 	"time"
 
@@ -107,6 +108,18 @@ func layoutBubble(gtx layout.Context, th *Theme, m store.Message, group GroupPos
 						children = append(children,
 							layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 								return layoutMediaBlock(gtx, th, m, thumbnail)
+							}),
+							layout.Rigid(layout.Spacer{Height: th.Spacing.XS}.Layout),
+						)
+					}
+
+					// Link preview card (when the sender's URL had
+					// metadata and we haven't already shown a media
+					// thumbnail).
+					if m.MediaType == "" && (m.LinkURL != "" || m.LinkTitle != "") {
+						children = append(children,
+							layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+								return layoutLinkPreview(gtx, th, m, fromMe)
 							}),
 							layout.Rigid(layout.Spacer{Height: th.Spacing.XS}.Layout),
 						)
@@ -217,13 +230,24 @@ func layoutBubbleMeta(gtx layout.Context, th *Theme, m store.Message, fromMe boo
 // layoutMediaBlock renders the media portion of a bubble: a thumbnail
 // when one is available, otherwise a small media-type pill so the
 // user still knows an attachment was sent.
+//
+// For audio + document messages the pill is richer than just the
+// type: it includes duration / file size / filename pulled from the
+// MessageEvent's MediaMeta. Used by the bubble code for v0.1.9's
+// "voice notes" and "documents" stories.
 func layoutMediaBlock(gtx layout.Context, th *Theme, m store.Message, thumbnail image.Image) layout.Dimensions {
 	if thumbnail != nil {
 		return layoutThumbnail(gtx, th, thumbnail, unit.Dp(220))
 	}
 	mat := th.Material()
 	glyph, label := mediaTypeGlyph(m.MediaType)
-	lbl := material.Label(mat, th.Type.Label, glyph+" "+label)
+	text := glyph + " " + label
+	// MediaType is the only column we persist for now; richer media
+	// metadata (duration / size / filename) lives transiently on the
+	// MessageEvent and is dropped on persistence. For history-sync
+	// or re-loaded messages the pill stays minimal — full meta needs
+	// extra columns in a follow-up.
+	lbl := material.Label(mat, th.Type.Label, text)
 	lbl.Color = th.Palette.TextSecondary
 	return roundedFill(gtx, th.Palette.Surface, th.Radius.Button, func(gtx layout.Context) layout.Dimensions {
 		return layout.Inset{
@@ -231,6 +255,60 @@ func layoutMediaBlock(gtx layout.Context, th *Theme, m store.Message, thumbnail 
 			Left: th.Spacing.S, Right: th.Spacing.S,
 		}.Layout(gtx, lbl.Layout)
 	})
+}
+
+// layoutLinkPreview renders a small card with the title + description
+// + URL host of a previewed link. WhatsApp's senders include this
+// metadata directly on ExtendedTextMessage, so no network fetch is
+// needed.
+func layoutLinkPreview(gtx layout.Context, th *Theme, m store.Message, fromMe bool) layout.Dimensions {
+	mat := th.Material()
+	bg := tintQuoteBackground(th, fromMe)
+	return roundedFill(gtx, bg, th.Radius.Button, func(gtx layout.Context) layout.Dimensions {
+		return layout.Inset{
+			Top: th.Spacing.XS, Bottom: th.Spacing.XS,
+			Left: th.Spacing.S, Right: th.Spacing.S,
+		}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+			children := []layout.FlexChild{}
+			if title := m.LinkTitle; title != "" {
+				lbl := material.Label(mat, th.Type.Label, title)
+				lbl.Color = th.Palette.TextPrimary
+				lbl.MaxLines = 1
+				children = append(children, layout.Rigid(lbl.Layout))
+			}
+			if desc := m.LinkDesc; desc != "" {
+				lbl := material.Label(mat, th.Type.Meta, desc)
+				lbl.Color = th.Palette.TextSecondary
+				lbl.MaxLines = 2
+				children = append(children, layout.Rigid(lbl.Layout))
+			}
+			if host := linkHost(m.LinkURL); host != "" {
+				lbl := material.Label(mat, th.Type.Meta, host)
+				lbl.Color = th.Palette.Accent
+				lbl.MaxLines = 1
+				children = append(children, layout.Rigid(lbl.Layout))
+			}
+			return layout.Flex{Axis: layout.Vertical}.Layout(gtx, children...)
+		})
+	})
+}
+
+// linkHost returns the host part of url, or the raw url truncated if
+// parsing fails. Pure helper for testing.
+func linkHost(u string) string {
+	if u == "" {
+		return ""
+	}
+	parsed, err := neturl.Parse(u)
+	if err != nil || parsed.Host == "" {
+		// Trim wrapping whitespace; cap length so the line doesn't
+		// overflow the bubble.
+		if len(u) > 60 {
+			return u[:60] + "…"
+		}
+		return u
+	}
+	return parsed.Host
 }
 
 // mediaTypeGlyph returns the glyph + label for a media-type pill.

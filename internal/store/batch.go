@@ -32,9 +32,10 @@ func (s *Store) InsertBatch(ctx context.Context, msgs []Message) (int, error) {
         INSERT INTO messages (
             wa_id, chat_jid, sender_jid, ts, body,
             media_path, media_type, status,
-            quoted_waid, quoted_body, quoted_sender, edited, revoked
+            quoted_waid, quoted_body, quoted_sender, edited, revoked,
+            link_url, link_title, link_desc
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(wa_id) DO NOTHING
     `)
 	if err != nil {
@@ -58,6 +59,7 @@ func (s *Store) InsertBatch(ctx context.Context, msgs []Message) (int, error) {
 			status,
 			nullableString(m.QuotedWAID), nullableString(m.QuotedBody), nullableString(m.QuotedSender),
 			boolToInt(m.Edited), boolToInt(m.Revoked),
+			nullableString(m.LinkURL), nullableString(m.LinkTitle), nullableString(m.LinkDesc),
 		)
 		if err != nil {
 			return 0, fmt.Errorf("store.InsertBatch: insert %s: %w", m.WAID, err)

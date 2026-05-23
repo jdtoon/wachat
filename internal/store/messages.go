@@ -47,6 +47,13 @@ type Message struct {
 	// Revoked: sender used "delete for everyone." Body should be
 	// rendered as a placeholder rather than the stored content.
 	Revoked bool
+
+	// Link preview info — populated when the message had an
+	// ExtendedTextMessage with a URL preview. The UI renders these
+	// as a small card below the body.
+	LinkURL   string
+	LinkTitle string
+	LinkDesc  string
 }
 
 // Message status constants. Keep these in sync with bubble.go's tick
@@ -96,9 +103,10 @@ func (s *Store) Insert(ctx context.Context, m Message, bumpUnread bool) (bool, e
         INSERT INTO messages (
             wa_id, chat_jid, sender_jid, ts, body,
             media_path, media_type, status,
-            quoted_waid, quoted_body, quoted_sender, edited, revoked
+            quoted_waid, quoted_body, quoted_sender, edited, revoked,
+            link_url, link_title, link_desc
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(wa_id) DO NOTHING
     `,
 		m.WAID, m.ChatJID, nullableString(m.SenderJID), m.TS,
@@ -106,6 +114,7 @@ func (s *Store) Insert(ctx context.Context, m Message, bumpUnread bool) (bool, e
 		status,
 		nullableString(m.QuotedWAID), nullableString(m.QuotedBody), nullableString(m.QuotedSender),
 		boolToInt(m.Edited), boolToInt(m.Revoked),
+		nullableString(m.LinkURL), nullableString(m.LinkTitle), nullableString(m.LinkDesc),
 	)
 	if err != nil {
 		return false, fmt.Errorf("store.Insert: insert message: %w", err)

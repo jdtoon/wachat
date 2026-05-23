@@ -29,6 +29,13 @@ type MediaInfo struct {
 	Type          string
 	Caption       string
 	ThumbnailJPEG []byte
+
+	// Audio: duration in seconds (0 = unknown).
+	DurationSecs uint32
+	// Documents + audio: byte size of the underlying file.
+	FileSize uint64
+	// Documents: server-side filename.
+	FileName string
 }
 
 // extractMedia inspects a whatsmeow E2E message and returns the media
@@ -57,16 +64,22 @@ func extractMedia(m *waE2E.Message) MediaInfo {
 		}
 	}
 	if am := m.GetAudioMessage(); am != nil {
-		return MediaInfo{Type: MediaTypeAudio}
+		return MediaInfo{
+			Type:         MediaTypeAudio,
+			DurationSecs: am.GetSeconds(),
+			FileSize:     am.GetFileLength(),
+		}
 	}
 	if dm := m.GetDocumentMessage(); dm != nil {
-		caption := dm.GetFileName()
-		if caption == "" {
-			caption = dm.GetTitle()
+		name := dm.GetFileName()
+		if name == "" {
+			name = dm.GetTitle()
 		}
 		return MediaInfo{
 			Type:          MediaTypeDocument,
-			Caption:       caption,
+			Caption:       name,
+			FileName:      name,
+			FileSize:      dm.GetFileLength(),
 			ThumbnailJPEG: dm.GetJPEGThumbnail(),
 		}
 	}
@@ -74,6 +87,74 @@ func extractMedia(m *waE2E.Message) MediaInfo {
 		return MediaInfo{Type: MediaTypeSticker}
 	}
 	return MediaInfo{}
+}
+
+// FormatDuration renders an audio length as M:SS for the bubble pill.
+// Public so the UI layer can format DurationSecs in MessageEvent.
+func FormatDuration(secs uint32) string {
+	if secs == 0 {
+		return ""
+	}
+	m := secs / 60
+	s := secs % 60
+	// Manual format — keeps the wa package without an fmt allocation
+	// per render frame. Caller can switch to fmt.Sprintf if locale
+	// matters later.
+	return itoa(int(m)) + ":" + zeropad2(int(s))
+}
+
+// FormatBytes renders a file size as B / KB / MB / GB. Same
+// rationale as FormatDuration.
+func FormatBytes(b uint64) string {
+	const KB = 1024
+	const MB = KB * 1024
+	const GB = MB * 1024
+	switch {
+	case b == 0:
+		return ""
+	case b < KB:
+		return itoa(int(b)) + " B"
+	case b < MB:
+		return itoa(int(b/KB)) + " KB"
+	case b < GB:
+		// One decimal place.
+		whole := int(b / MB)
+		frac := int((b % MB) * 10 / MB)
+		return itoa(whole) + "." + itoa(frac) + " MB"
+	default:
+		whole := int(b / GB)
+		frac := int((b % GB) * 10 / GB)
+		return itoa(whole) + "." + itoa(frac) + " GB"
+	}
+}
+
+func itoa(i int) string {
+	if i == 0 {
+		return "0"
+	}
+	neg := i < 0
+	if neg {
+		i = -i
+	}
+	var b [20]byte
+	pos := len(b)
+	for i > 0 {
+		pos--
+		b[pos] = byte('0' + i%10)
+		i /= 10
+	}
+	if neg {
+		pos--
+		b[pos] = '-'
+	}
+	return string(b[pos:])
+}
+
+func zeropad2(i int) string {
+	if i < 10 {
+		return "0" + itoa(i)
+	}
+	return itoa(i)
 }
 
 // MediaDir is the on-disk directory for media files. Set once at

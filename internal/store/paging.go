@@ -40,7 +40,7 @@ func (s *Store) PageAround(ctx context.Context, chatJID string, anchorID int64, 
 		return nil, Cursor{}, fmt.Errorf("store.PageAround: before/after must be non-negative")
 	}
 
-	const selectCols = `SELECT id, wa_id, chat_jid, sender_jid, ts, body, media_path, media_type, status, quoted_waid, quoted_body, quoted_sender, edited, revoked FROM messages`
+	const selectCols = `SELECT id, wa_id, chat_jid, sender_jid, ts, body, media_path, media_type, status, quoted_waid, quoted_body, quoted_sender, edited, revoked, link_url, link_title, link_desc FROM messages`
 
 	// Anchor row — also gives us the TS we need for the OLDER side.
 	var anchor Message
@@ -89,36 +89,28 @@ func (s *Store) PageAround(ctx context.Context, chatJID string, anchorID int64, 
 // long column list + sql.NullString unpacking that all SELECT sites
 // share.
 func scanMessageRows(rows *sql.Rows, m *Message) error {
-	var waID, senderJID, body, mediaPath, mediaType, status sql.NullString
-	var quotedWAID, quotedBody, quotedSender sql.NullString
-	var edited, revoked int
-	if err := rows.Scan(&m.ID, &waID, &m.ChatJID, &senderJID, &m.TS,
-		&body, &mediaPath, &mediaType, &status,
-		&quotedWAID, &quotedBody, &quotedSender, &edited, &revoked); err != nil {
-		return err
-	}
-	m.WAID = waID.String
-	m.SenderJID = senderJID.String
-	m.Body = body.String
-	m.MediaPath = mediaPath.String
-	m.MediaType = mediaType.String
-	m.Status = status.String
-	m.QuotedWAID = quotedWAID.String
-	m.QuotedBody = quotedBody.String
-	m.QuotedSender = quotedSender.String
-	m.Edited = edited != 0
-	m.Revoked = revoked != 0
-	return nil
+	return scanMessage(rows, m)
 }
 
 // scanMessageRow is scanMessageRows for a single *sql.Row.
 func scanMessageRow(row *sql.Row, m *Message) error {
+	return scanMessage(row, m)
+}
+
+// rowScanner is the common subset of *sql.Row and *sql.Rows: Scan.
+type rowScanner interface {
+	Scan(dest ...any) error
+}
+
+func scanMessage(row rowScanner, m *Message) error {
 	var waID, senderJID, body, mediaPath, mediaType, status sql.NullString
 	var quotedWAID, quotedBody, quotedSender sql.NullString
 	var edited, revoked int
+	var linkURL, linkTitle, linkDesc sql.NullString
 	if err := row.Scan(&m.ID, &waID, &m.ChatJID, &senderJID, &m.TS,
 		&body, &mediaPath, &mediaType, &status,
-		&quotedWAID, &quotedBody, &quotedSender, &edited, &revoked); err != nil {
+		&quotedWAID, &quotedBody, &quotedSender, &edited, &revoked,
+		&linkURL, &linkTitle, &linkDesc); err != nil {
 		return err
 	}
 	m.WAID = waID.String
@@ -132,6 +124,9 @@ func scanMessageRow(row *sql.Row, m *Message) error {
 	m.QuotedSender = quotedSender.String
 	m.Edited = edited != 0
 	m.Revoked = revoked != 0
+	m.LinkURL = linkURL.String
+	m.LinkTitle = linkTitle.String
+	m.LinkDesc = linkDesc.String
 	return nil
 }
 
@@ -178,7 +173,7 @@ func (s *Store) PageOlder(ctx context.Context, chatJID string, before Cursor, li
 		rows *sql.Rows
 		err  error
 	)
-	const selectCols = `SELECT id, wa_id, chat_jid, sender_jid, ts, body, media_path, media_type, status, quoted_waid, quoted_body, quoted_sender, edited, revoked FROM messages`
+	const selectCols = `SELECT id, wa_id, chat_jid, sender_jid, ts, body, media_path, media_type, status, quoted_waid, quoted_body, quoted_sender, edited, revoked, link_url, link_title, link_desc FROM messages`
 	if before.IsZero() {
 		rows, err = s.db.QueryContext(ctx, selectCols+`
             WHERE chat_jid = ?
