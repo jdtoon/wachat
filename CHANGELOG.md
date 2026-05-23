@@ -9,6 +9,27 @@ to [Semantic Versioning][semver].
 
 (nothing yet)
 
+## [0.0.2] - 2026-05-23
+
+### Added
+
+- **Design system** (`internal/ui/theme.go` + light/dark palettes). All
+  widgets now consult typed `Theme.Palette`, `Theme.Spacing`,
+  `Theme.Type`, `Theme.Radius`, `Theme.Motion`, `Theme.Density` —
+  raw color/spacing literals removed from `view.go`.
+- **Public Sans** (OFL) embedded in three weights via `//go:embed`. Go
+  fonts kept as emoji/script fallback. Adds ~250 KB to the binary.
+- **WCAG AA contrast tested**: body text on every relevant background
+  ≥ 4.5:1; button labels on accent ≥ 3:1.
+- `docs/wiki/Theming.md` documenting the token model.
+
+### Internal
+
+- `Theme.Duration(d)` is the single hook for reduced-motion respect.
+- `Theme.RowPad()` derives row padding from `Density`.
+
+[0.0.2]: https://github.com/jdtoon/wachat/releases/tag/v0.0.2
+
 ## [0.0.1] - 2026-05-23
 
 The initial bootstrap snapshot. The CLAUDE.md §12 roadmap is fully
@@ -60,7 +81,7 @@ media-cache framework is ready to wire into the message bubble.
 - `CGO_ENABLED=0` confirmed via `go version -m wachat`
 - UI goroutine never receives DB writes from background goroutines
 
-[unreleased]: https://github.com/jdtoon/wachat/compare/v0.0.1...HEAD
+[unreleased]: https://github.com/jdtoon/wachat/compare/v0.0.2...HEAD
 [0.0.1]: https://github.com/jdtoon/wachat/releases/tag/v0.0.1
 [kac]: https://keepachangelog.com/en/1.1.0/
 [semver]: https://semver.org/spec/v2.0.0.html
