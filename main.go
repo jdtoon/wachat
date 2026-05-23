@@ -118,8 +118,19 @@ func run(dbPath string, noConnect bool) error {
 				switch cs {
 				case wa.ConnectionConnected:
 					connState = ui.ConnConnected
+					// On a fresh pair (or re-connect that arrives with
+					// a different paired device), refresh the JID and
+					// re-load the chat list so anything that history
+					// sync persisted is immediately visible.
+					if jid := waCli.OwnJID(); jid != "" {
+						state.OwnJID = jid
+					}
+					if err := state.LoadChats(ctx); err != nil {
+						log.Println("LoadChats (on Connected):", err)
+					}
 					if needsPairing {
 						pairingView.SetPhase(ui.PairingReady)
+						needsPairing = false
 					}
 				case wa.ConnectionDisconnected:
 					connState = ui.ConnDisconnected
@@ -141,19 +152,35 @@ func run(dbPath string, noConnect bool) error {
 			if err != nil {
 				return fmt.Errorf("wa.QRChannel: %w", err)
 			}
-			go renderQRs(qrCh)
-			// Bridge the QR channel into the pairing view too — second
-			// consumer pattern is fine because we own the wrapper that
-			// produced the channel; future cleanup: split into a fan-out.
-			pairingCh, err := waCli.QRChannel(ctx)
-			if err == nil {
-				go func() {
-					for item := range pairingCh {
-						pairingView.HandleQR(item)
-						w.Invalidate()
+			// Fan-out: whatsmeow's QR channel can only be consumed
+			// once. Single producer reads it and broadcasts to both
+			// the terminal renderer and the in-window pairing view.
+			// Non-blocking sends drop on a slow consumer — the rotating
+			// QR stream is bounded (~8 codes per pairing window) so
+			// drops mean "we already showed the user something newer."
+			terminalQR := make(chan wa.QRItem, 4)
+			windowQR := make(chan wa.QRItem, 4)
+			go func() {
+				defer close(terminalQR)
+				defer close(windowQR)
+				for item := range qrCh {
+					select {
+					case terminalQR <- item:
+					default:
 					}
-				}()
-			}
+					select {
+					case windowQR <- item:
+					default:
+					}
+				}
+			}()
+			go renderQRs(terminalQR)
+			go func() {
+				for item := range windowQR {
+					pairingView.HandleQR(item)
+					w.Invalidate()
+				}
+			}()
 		}
 
 		// Connect off the UI goroutine so the window paints immediately;
