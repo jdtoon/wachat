@@ -7,6 +7,11 @@ GOFMT     ?= gofmt
 BINARY    ?= wachat
 LDFLAGS   ?= -s -w
 
+# Use an in-repo temp dir for go-build artifacts. On some Windows machines
+# antivirus blocks newly-created executables under %TEMP%; pointing GOTMPDIR
+# at a workspace directory avoids the issue with zero downside elsewhere.
+export GOTMPDIR := $(CURDIR)/.tmp-go
+
 # OS-specific binary suffix (Windows .exe)
 ifeq ($(OS),Windows_NT)
 EXE := .exe
@@ -65,4 +70,6 @@ run: ## go run the app
 clean: ## remove build artifacts and local state
 	rm -f $(BINARY) $(BINARY).exe coverage.out coverage.html
 	rm -f wachat.db wachat.db-journal wachat.db-wal wachat.db-shm
-	rm -rf media/
+	rm -rf media/ .tmp-go/
+
+$(shell mkdir -p .tmp-go)

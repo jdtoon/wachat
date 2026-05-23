@@ -17,6 +17,7 @@
 *.test.exe
 coverage.out
 coverage.html
+/.tmp-go/
 
 # Editor / IDE
 /.idea/

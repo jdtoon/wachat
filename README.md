@@ -32,7 +32,8 @@ no DB blobs for media, no `OFFSET` pagination, etc.).
 
 ## Build & run
 
-Requires **Go 1.22+**. No CI pipeline — every gate runs locally.
+Requires **Go 1.25+** (pinned by `modernc.org/sqlite`). No CI pipeline — every
+gate runs locally.
 
 ```bash
 make hooks   # one-time: installs the local pre-commit hook

@@ -1,0 +1,37 @@
+-- Canonical wachat schema. See CLAUDE.md §7 for rules.
+-- This file is the source of truth; Open() applies it on every connection.
+
+-- Performance pragmas. WAL lets a reader run concurrently with a writer
+-- (we have one writer goroutine and the UI as reader). synchronous=NORMAL
+-- is safe with WAL and noticeably faster than FULL on commit-heavy
+-- workloads like message ingestion.
+PRAGMA journal_mode=WAL;
+PRAGMA synchronous=NORMAL;
+
+-- Messages: one row per WhatsApp message we have seen. wa_id is the dedup
+-- key (whatsmeow can redeliver on reconnect). media_path stores a relative
+-- path to a file on disk; the bytes are never stored in the DB (§7).
+CREATE TABLE IF NOT EXISTS messages (
+    id         INTEGER PRIMARY KEY,
+    wa_id      TEXT UNIQUE,
+    chat_jid   TEXT NOT NULL,
+    sender_jid TEXT,
+    ts         INTEGER NOT NULL,        -- unix millis
+    body       TEXT,
+    media_path TEXT,                    -- NULL for text-only
+    media_type TEXT                     -- image/video/audio/doc, NULL for text
+);
+
+-- Keyset paging hot path: WHERE chat_jid=? AND ts<? ORDER BY ts DESC LIMIT N.
+-- Compound (chat_jid, ts DESC) covers this perfectly — no separate sort.
+CREATE INDEX IF NOT EXISTS idx_chat_ts ON messages(chat_jid, ts DESC);
+
+-- Chats: lightweight per-conversation metadata. last_ts and unread are
+-- maintained by store.UpsertChat() on inserts so the chat list can render
+-- without scanning messages.
+CREATE TABLE IF NOT EXISTS chats (
+    jid     TEXT PRIMARY KEY,
+    name    TEXT,
+    last_ts INTEGER,
+    unread  INTEGER NOT NULL DEFAULT 0
+);

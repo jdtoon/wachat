@@ -10,6 +10,11 @@ set -euo pipefail
 repo_root=$(git rev-parse --show-toplevel)
 cd "$repo_root"
 
+# Workaround for Windows AV blocking newly-created test binaries under %TEMP%
+# (see Makefile for the same setting). Harmless on other platforms.
+export GOTMPDIR="$repo_root/.tmp-go"
+mkdir -p "$GOTMPDIR"
+
 # Only run the Go gate if there is Go code. (Allows the initial scaffolding
 # commit to pass before go.mod exists.)
 if [ -f go.mod ]; then
