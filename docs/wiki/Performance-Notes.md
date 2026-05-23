@@ -6,18 +6,20 @@
 - Sub-second cold start on a warm OS file cache.
 - No frame hitches scrolling a 100k-message chat.
 
-## Measurements
+## Measurements (v0.1.0)
 
 Reproduce via `make bench`. Numbers below are from an Intel Core Ultra 7 258V on Windows 11, pure-Go build (`CGO_ENABLED=0`).
 
 | Metric                  | Result                        |
 |-------------------------|-------------------------------|
-| `store.Open`            | ~5 ms                         |
-| Bulk insert             | ~10k msgs/s                   |
+| `store.Open`            | ~6 ms                         |
+| Bulk insert             | ~2.5k msgs/s (incl. FTS5)     |
 | Go heap (`HeapAlloc`)   | ~0.5 MB after 100k msgs       |
 | Go runtime `Sys` (RSS≈) | ~16 MB                        |
-| First keyset page (50)  | ~520 µs                       |
-| Deep keyset page (90%)  | ~12 ms (cold index pages)     |
+| First keyset page (50)  | ~1 ms                         |
+| Deep keyset page (90%)  | ~20 ms (cold index pages)     |
+
+Insert throughput dropped ~4x in v0.0.5 when FTS5 indexing landed — both numbers are far above any realistic inbound message rate. The Go heap stayed identical across the v0.0.1 → v0.1.0 arc.
 
 ## Why flat heap matters
 
