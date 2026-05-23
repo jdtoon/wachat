@@ -9,6 +9,34 @@ to [Semantic Versioning][semver].
 
 (nothing yet)
 
+## [0.1.5] - 2026-05-23
+
+### Added
+
+- **Reply quotes** render above the bubble body: a thin
+  accent-bordered sub-box showing the quoted sender + snippet.
+  Inbound messages with `ContextInfo.QuotedMessage` are persisted
+  with quote info.
+- **Edit-message** support (receive). `ProtocolMessage MESSAGE_EDIT`
+  updates the message body and shows a `(edited)` suffix.
+- **Delete-for-everyone** (receive). `ProtocolMessage REVOKE` flips
+  the `revoked` flag and the bubble renders "🚫 message deleted" in
+  italic instead of the body.
+- New `store.ApplyEdit` / `ApplyRevoke` and 5 message columns
+  (`quoted_waid`, `quoted_body`, `quoted_sender`, `edited`,
+  `revoked`) with transparent migration.
+
+### Internal
+
+- `scanMessageRows` / `scanMessageRow` helpers de-duplicate the long
+  SELECT column list across PageOlder / PageAround.
+- New `EditRevoker` interface narrows the wa-side store contract.
+
+Send side (right-click → reply / edit / delete) is a follow-up
+alongside the broader message context menu.
+
+[0.1.5]: https://github.com/jdtoon/wachat/releases/tag/v0.1.5
+
 ## [0.1.4] - 2026-05-23
 
 ### Added
@@ -379,7 +407,7 @@ media-cache framework is ready to wire into the message bubble.
 - `CGO_ENABLED=0` confirmed via `go version -m wachat`
 - UI goroutine never receives DB writes from background goroutines
 
-[unreleased]: https://github.com/jdtoon/wachat/compare/v0.1.4...HEAD
+[unreleased]: https://github.com/jdtoon/wachat/compare/v0.1.5...HEAD
 [0.0.1]: https://github.com/jdtoon/wachat/releases/tag/v0.0.1
 [kac]: https://keepachangelog.com/en/1.1.0/
 [semver]: https://semver.org/spec/v2.0.0.html
