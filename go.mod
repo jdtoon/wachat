@@ -3,16 +3,19 @@ module github.com/jdtoon/wachat
 go 1.25.0
 
 require (
+	gioui.org v0.10.0
 	go.mau.fi/whatsmeow v0.0.0-20260516102357-8d3700152a69
 	modernc.org/sqlite v1.50.1
 )
 
 require (
 	filippo.io/edwards25519 v1.1.0 // indirect
+	gioui.org/shader v1.0.8 // indirect
 	github.com/beeper/argo-go v1.1.2 // indirect
 	github.com/coder/websocket v1.8.14 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/elliotchance/orderedmap/v3 v3.1.0 // indirect
+	github.com/go-text/typesetting v0.3.4 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/mattn/go-colorable v0.1.14 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect
@@ -25,6 +28,8 @@ require (
 	go.mau.fi/util v0.9.9 // indirect
 	golang.org/x/crypto v0.51.0 // indirect
 	golang.org/x/exp v0.0.0-20260508232706-74f9aab9d74a // indirect
+	golang.org/x/exp/shiny v0.0.0-20250408133849-7e4ce0ab07d0 // indirect
+	golang.org/x/image v0.26.0 // indirect
 	golang.org/x/net v0.54.0 // indirect
 	golang.org/x/sync v0.20.0 // indirect
 	golang.org/x/sys v0.44.0 // indirect
