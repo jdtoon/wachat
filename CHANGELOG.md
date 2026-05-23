@@ -9,6 +9,35 @@ to [Semantic Versioning][semver].
 
 (nothing yet)
 
+## [0.1.7] - 2026-05-23
+
+### Added
+
+- **Pin chats.** Pinned conversations sort to the top of the chat
+  list with a 📌 prefix. Driven by `events.Pin`.
+- **Mute chats.** 🔇 prefix on the chat name; `ChatSummary.IsMuted`
+  helper for the future notifications path.
+- **Archive chats.** Archived conversations are filtered from the
+  main chat list (dedicated archive view is a follow-up).
+- **Typing indicator.** "Alice is typing…" / "X and Y are typing…"
+  appears above the composer for the active chat. Per-chat TTL
+  (`TypingTTL = 10s`) so a missed "paused" event still clears the
+  line.
+
+### Internal
+
+- New `chats.pinned`, `chats.archived`, `chats.mute_until` columns
+  with transparent migration.
+- `store.SetPinned` / `SetArchived` / `SetMuteUntil`.
+- `wa.Handler.OnTyping` callback + `applyPin` / `applyMute` /
+  `applyArchive` event handlers.
+- `ChatStateStore` interface for the wa-side store contract.
+
+Mentions rendering and presence/last-seen stay on the v0.1.7
+checklist and land in a follow-up so this patch ships focused.
+
+[0.1.7]: https://github.com/jdtoon/wachat/releases/tag/v0.1.7
+
 ## [0.1.6] - 2026-05-23
 
 ### Added
@@ -425,7 +454,7 @@ media-cache framework is ready to wire into the message bubble.
 - `CGO_ENABLED=0` confirmed via `go version -m wachat`
 - UI goroutine never receives DB writes from background goroutines
 
-[unreleased]: https://github.com/jdtoon/wachat/compare/v0.1.6...HEAD
+[unreleased]: https://github.com/jdtoon/wachat/compare/v0.1.7...HEAD
 [0.0.1]: https://github.com/jdtoon/wachat/releases/tag/v0.0.1
 [kac]: https://keepachangelog.com/en/1.1.0/
 [semver]: https://semver.org/spec/v2.0.0.html
