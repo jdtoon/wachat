@@ -1,0 +1,10 @@
+* text=auto eol=lf
+
+*.go      text eol=lf
+*.sql     text eol=lf
+*.md      text eol=lf
+*.sh      text eol=lf
+Makefile  text eol=lf
+
+# Shell scripts must stay LF-only on Windows so Git Bash can exec them
+scripts/* text eol=lf

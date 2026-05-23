@@ -1,0 +1,55 @@
+#!/usr/bin/env bash
+# wachat local pre-commit hook.
+# Installed by `make hooks` (which runs scripts/install-hooks.sh).
+#
+# Runs the same gate as `make check` plus a small tests-with-code heuristic.
+# Bypass in genuine emergencies with `git commit --no-verify`.
+
+set -euo pipefail
+
+repo_root=$(git rev-parse --show-toplevel)
+cd "$repo_root"
+
+# Only run the Go gate if there is Go code. (Allows the initial scaffolding
+# commit to pass before go.mod exists.)
+if [ -f go.mod ]; then
+    echo "[pre-commit] gofmt"
+    out=$(gofmt -l . || true)
+    if [ -n "$out" ]; then
+        echo "gofmt: the following files need formatting:" >&2
+        echo "$out" >&2
+        exit 1
+    fi
+
+    echo "[pre-commit] go vet"
+    go vet ./...
+
+    echo "[pre-commit] go test -race"
+    go test ./... -race -count=1
+fi
+
+# Heuristic: commits touching critical packages should also touch a *_test.go
+# file. Easy to bypass with --no-verify but the default nudge is toward
+# tests-with-code.
+staged=$(git diff --cached --name-only --diff-filter=ACMR)
+needs_tests=0
+touches_tests=0
+while IFS= read -r f; do
+    case "$f" in
+        internal/store/*.go|internal/wa/*.go|internal/ui/*.go)
+            case "$f" in
+                *_test.go) touches_tests=1 ;;
+                *)         needs_tests=1 ;;
+            esac
+            ;;
+    esac
+done <<< "$staged"
+
+if [ "$needs_tests" = "1" ] && [ "$touches_tests" = "0" ]; then
+    echo "[pre-commit] WARNING: production code under internal/{store,wa,ui}" >&2
+    echo "[pre-commit] is changing without a matching *_test.go change." >&2
+    echo "[pre-commit] Add a test or rerun with --no-verify if intentional." >&2
+    exit 1
+fi
+
+echo "[pre-commit] ok"

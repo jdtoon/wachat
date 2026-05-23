@@ -1,0 +1,37 @@
+# Built binaries
+/wachat
+/wachat.exe
+/dist/
+
+# Local SQLite database + WAL/SHM sidecars
+/wachat.db
+/wachat.db-journal
+/wachat.db-wal
+/wachat.db-shm
+
+# Downloaded media (paths-only stored in DB; bytes never tracked)
+/media/
+
+# Test + coverage artifacts
+*.test
+*.test.exe
+coverage.out
+coverage.html
+
+# Editor / IDE
+/.idea/
+/.vscode/
+*.swp
+*~
+
+# OS junk
+Thumbs.db
+.DS_Store
+
+# Local secrets / env (none should exist, but belt-and-suspenders)
+.env
+.env.*
+!.env.example
+
+# Claude Code local settings (not part of the project)
+/.claude/settings.local.json
