@@ -5,6 +5,7 @@ import (
 	"image/color"
 	"time"
 
+	"gioui.org/font"
 	"gioui.org/layout"
 	"gioui.org/op"
 	"gioui.org/op/clip"
@@ -67,10 +68,8 @@ func layoutBubble(gtx layout.Context, th *Theme, m store.Message, group GroupPos
 					Top: th.Spacing.S, Bottom: th.Spacing.S,
 					Left: th.Spacing.M, Right: th.Spacing.M,
 				}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-					body := material.Label(mat, th.Type.Body, m.Body)
-					body.Color = th.Palette.TextPrimary
-
 					children := []layout.FlexChild{}
+
 					// Sender label only on the FIRST bubble of a sender
 					// run (Head or Solo) — middle/tail share the same
 					// sender and don't need it repeated.
@@ -82,6 +81,25 @@ func layoutBubble(gtx layout.Context, th *Theme, m store.Message, group GroupPos
 							layout.Rigid(lbl.Layout),
 							layout.Rigid(layout.Spacer{Height: th.Spacing.XXS}.Layout),
 						)
+					}
+
+					// Quoted-message block (if this is a reply).
+					if m.QuotedBody != "" || m.QuotedWAID != "" {
+						children = append(children,
+							layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+								return layoutQuotedBlock(gtx, th, m, fromMe)
+							}),
+							layout.Rigid(layout.Spacer{Height: th.Spacing.XS}.Layout),
+						)
+					}
+
+					// Body — revoked messages show a placeholder.
+					bodyText, italicized := bubbleBodyText(m)
+					body := material.Label(mat, th.Type.Body, bodyText)
+					body.Color = th.Palette.TextPrimary
+					if italicized {
+						body.Color = th.Palette.TextSecondary
+						body.Font.Style = font.Italic
 					}
 					children = append(children,
 						layout.Rigid(body.Layout),
@@ -159,6 +177,80 @@ func layoutBubbleMeta(gtx layout.Context, th *Theme, m store.Message, fromMe boo
 		layout.Rigid(layout.Spacer{Width: th.Spacing.XS}.Layout),
 		layout.Rigid(tick.Layout),
 	)
+}
+
+// bubbleBodyText returns what to render as the bubble's main body.
+// Revoked messages return a placeholder + italic flag. Edited messages
+// append a small "(edited)" marker but stay plain. Pure for tests.
+func bubbleBodyText(m store.Message) (text string, italic bool) {
+	if m.Revoked {
+		return "🚫 message deleted", true
+	}
+	if m.Edited {
+		if m.Body == "" {
+			return "(edited)", true
+		}
+		return m.Body + "  (edited)", false
+	}
+	return m.Body, false
+}
+
+// layoutQuotedBlock renders the small accent-bordered block above the
+// reply's body showing the quoted snippet. Per design.md §3 — a thin
+// accent-bordered block above the text showing the quoted snippet;
+// tap to jump to the original (jump-to lands in a follow-up).
+func layoutQuotedBlock(gtx layout.Context, th *Theme, m store.Message, fromMe bool) layout.Dimensions {
+	mat := th.Material()
+	// Background: a slightly darker shade than the bubble itself.
+	bg := tintQuoteBackground(th, fromMe)
+	return roundedFill(gtx, bg, th.Radius.Button, func(gtx layout.Context) layout.Dimensions {
+		return layout.Inset{
+			Top: th.Spacing.XS, Bottom: th.Spacing.XS,
+			Left: th.Spacing.S, Right: th.Spacing.S,
+		}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+			senderText := m.QuotedSender
+			if senderText == "" {
+				senderText = "Quoted"
+			}
+			senderLbl := material.Label(mat, th.Type.Meta, senderText)
+			senderLbl.Color = th.Palette.Accent
+			senderLbl.MaxLines = 1
+			bodyLbl := material.Label(mat, th.Type.Meta, m.QuotedBody)
+			bodyLbl.Color = th.Palette.TextSecondary
+			bodyLbl.MaxLines = 2
+			return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
+				layout.Rigid(senderLbl.Layout),
+				layout.Rigid(bodyLbl.Layout),
+			)
+		})
+	})
+}
+
+// tintQuoteBackground returns a slightly-darker shade of the bubble
+// fill so the quoted block visually nests inside it. We just dim the
+// bubble color a touch.
+func tintQuoteBackground(th *Theme, fromMe bool) color.NRGBA {
+	bg := th.Palette.BubbleRecv
+	if fromMe {
+		bg = th.Palette.BubbleSent
+	}
+	return color.NRGBA{
+		R: scaleChan(bg.R, 0.88),
+		G: scaleChan(bg.G, 0.88),
+		B: scaleChan(bg.B, 0.88),
+		A: bg.A,
+	}
+}
+
+func scaleChan(v uint8, s float64) uint8 {
+	r := float64(v) * s
+	if r < 0 {
+		return 0
+	}
+	if r > 255 {
+		return 255
+	}
+	return uint8(r)
 }
 
 // senderLabelColor picks a deterministic hue per sender name so each

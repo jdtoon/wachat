@@ -12,14 +12,20 @@ PRAGMA synchronous=NORMAL;
 -- key (whatsmeow can redeliver on reconnect). media_path stores a relative
 -- path to a file on disk; the bytes are never stored in the DB (§7).
 CREATE TABLE IF NOT EXISTS messages (
-    id         INTEGER PRIMARY KEY,
-    wa_id      TEXT UNIQUE,
-    chat_jid   TEXT NOT NULL,
-    sender_jid TEXT,
-    ts         INTEGER NOT NULL,        -- unix millis
-    body       TEXT,
-    media_path TEXT,                    -- NULL for text-only
-    media_type TEXT                     -- image/video/audio/doc, NULL for text
+    id            INTEGER PRIMARY KEY,
+    wa_id         TEXT UNIQUE,
+    chat_jid      TEXT NOT NULL,
+    sender_jid    TEXT,
+    ts            INTEGER NOT NULL,     -- unix millis
+    body          TEXT,
+    media_path    TEXT,                 -- NULL for text-only
+    media_type    TEXT,                 -- image/video/audio/doc, NULL for text
+    status        TEXT NOT NULL DEFAULT 'sent', -- pending|sent|delivered|read|played
+    quoted_waid   TEXT,                 -- wa_id of the message this one replies to
+    quoted_body   TEXT,                 -- cached snippet of the quoted body
+    quoted_sender TEXT,                 -- JID of the quoted message's sender
+    edited        INTEGER NOT NULL DEFAULT 0,  -- 1 once the sender edited
+    revoked       INTEGER NOT NULL DEFAULT 0   -- 1 once delete-for-everyone
 );
 
 -- Keyset paging hot path: WHERE chat_jid=? AND ts<? ORDER BY ts DESC LIMIT N.

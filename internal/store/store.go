@@ -59,6 +59,10 @@ func Open(ctx context.Context, path string) (*Store, error) {
 		_ = db.Close()
 		return nil, fmt.Errorf("store: migrate status: %w", err)
 	}
+	if err := migrateAddReplyEditRevokeColumns(ctx, db); err != nil {
+		_ = db.Close()
+		return nil, fmt.Errorf("store: migrate quote/edit/revoke: %w", err)
+	}
 
 	// Backfill the FTS5 index for any existing rows that predate the
 	// virtual table (e.g. upgrading a v0.0.4 DB to v0.0.5+). Cheap when
@@ -107,6 +111,59 @@ func migrateAddStatusColumn(ctx context.Context, db *sql.DB) error {
 		return fmt.Errorf("alter table: %w", err)
 	}
 	return nil
+}
+
+// migrateAddReplyEditRevokeColumns adds the v0.1.5 columns to the
+// messages table on DBs that predate it. Same PRAGMA table_info +
+// ALTER pattern as the status migration. Idempotent.
+func migrateAddReplyEditRevokeColumns(ctx context.Context, db *sql.DB) error {
+	have, err := messageColumnSet(ctx, db)
+	if err != nil {
+		return err
+	}
+	type col struct {
+		name, ddl string
+	}
+	wanted := []col{
+		{"quoted_waid", `ALTER TABLE messages ADD COLUMN quoted_waid TEXT`},
+		{"quoted_body", `ALTER TABLE messages ADD COLUMN quoted_body TEXT`},
+		{"quoted_sender", `ALTER TABLE messages ADD COLUMN quoted_sender TEXT`},
+		{"edited", `ALTER TABLE messages ADD COLUMN edited INTEGER NOT NULL DEFAULT 0`},
+		{"revoked", `ALTER TABLE messages ADD COLUMN revoked INTEGER NOT NULL DEFAULT 0`},
+	}
+	for _, c := range wanted {
+		if have[c.name] {
+			continue
+		}
+		if _, err := db.ExecContext(ctx, c.ddl); err != nil {
+			return fmt.Errorf("add %s: %w", c.name, err)
+		}
+	}
+	return nil
+}
+
+// messageColumnSet returns the set of column names currently on the
+// messages table. Cheap; called only on Open.
+func messageColumnSet(ctx context.Context, db *sql.DB) (map[string]bool, error) {
+	rows, err := db.QueryContext(ctx, `PRAGMA table_info(messages)`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make(map[string]bool)
+	for rows.Next() {
+		var (
+			cid         int
+			name, dtype string
+			notnull, pk int
+			dflt        sql.NullString
+		)
+		if err := rows.Scan(&cid, &name, &dtype, &notnull, &dflt, &pk); err != nil {
+			return nil, err
+		}
+		out[name] = true
+	}
+	return out, nil
 }
 
 // backfillFTSIfNeeded re-indexes any messages that exist in the messages

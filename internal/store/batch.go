@@ -29,8 +29,12 @@ func (s *Store) InsertBatch(ctx context.Context, msgs []Message) (int, error) {
 	defer func() { _ = tx.Rollback() }()
 
 	insertMsg, err := tx.PrepareContext(ctx, `
-        INSERT INTO messages (wa_id, chat_jid, sender_jid, ts, body, media_path, media_type, status)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO messages (
+            wa_id, chat_jid, sender_jid, ts, body,
+            media_path, media_type, status,
+            quoted_waid, quoted_body, quoted_sender, edited, revoked
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(wa_id) DO NOTHING
     `)
 	if err != nil {
@@ -52,6 +56,8 @@ func (s *Store) InsertBatch(ctx context.Context, msgs []Message) (int, error) {
 			m.WAID, m.ChatJID, nullableString(m.SenderJID), m.TS,
 			nullableString(m.Body), nullableString(m.MediaPath), nullableString(m.MediaType),
 			status,
+			nullableString(m.QuotedWAID), nullableString(m.QuotedBody), nullableString(m.QuotedSender),
+			boolToInt(m.Edited), boolToInt(m.Revoked),
 		)
 		if err != nil {
 			return 0, fmt.Errorf("store.InsertBatch: insert %s: %w", m.WAID, err)

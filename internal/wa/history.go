@@ -131,6 +131,29 @@ func extractBody(m *waE2E.Message) string {
 	return ""
 }
 
+// extractQuoted pulls the reply / quoted-message info out of a
+// whatsmeow E2E message. Only ExtendedTextMessage carries ContextInfo
+// for a text reply; future media-message work will extend this.
+//
+// Returns ("", "", "") when there's no quote.
+func extractQuoted(m *waE2E.Message) (waID, body, sender string) {
+	if m == nil {
+		return
+	}
+	ext := m.GetExtendedTextMessage()
+	if ext == nil {
+		return
+	}
+	ctx := ext.GetContextInfo()
+	if ctx == nil || ctx.GetQuotedMessage() == nil {
+		return
+	}
+	waID = ctx.GetStanzaID()
+	sender = ctx.GetParticipant()
+	body = extractBody(ctx.GetQuotedMessage())
+	return
+}
+
 // HistoryPersister extends Persister with the bulk + chat-upsert API
 // the history sync handler needs. Defined here so fake stores in the
 // wa package can stub it without dragging in store internals.

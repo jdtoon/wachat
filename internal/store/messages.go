@@ -36,6 +36,17 @@ type Message struct {
 	MediaPath string
 	MediaType string
 	Status    string
+
+	// Quoted reply info — empty for non-reply messages.
+	QuotedWAID   string
+	QuotedBody   string
+	QuotedSender string
+
+	// Edited: sender used WhatsApp's "edit message" feature.
+	Edited bool
+	// Revoked: sender used "delete for everyone." Body should be
+	// rendered as a placeholder rather than the stored content.
+	Revoked bool
 }
 
 // Message status constants. Keep these in sync with bubble.go's tick
@@ -82,13 +93,19 @@ func (s *Store) Insert(ctx context.Context, m Message, bumpUnread bool) (bool, e
 	// INSERT OR IGNORE returns rowsAffected=1 on insert and 0 on dedup hit,
 	// which is exactly the signal we want without a separate SELECT.
 	res, err := tx.ExecContext(ctx, `
-        INSERT INTO messages (wa_id, chat_jid, sender_jid, ts, body, media_path, media_type, status)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO messages (
+            wa_id, chat_jid, sender_jid, ts, body,
+            media_path, media_type, status,
+            quoted_waid, quoted_body, quoted_sender, edited, revoked
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(wa_id) DO NOTHING
     `,
 		m.WAID, m.ChatJID, nullableString(m.SenderJID), m.TS,
 		nullableString(m.Body), nullableString(m.MediaPath), nullableString(m.MediaType),
 		status,
+		nullableString(m.QuotedWAID), nullableString(m.QuotedBody), nullableString(m.QuotedSender),
+		boolToInt(m.Edited), boolToInt(m.Revoked),
 	)
 	if err != nil {
 		return false, fmt.Errorf("store.Insert: insert message: %w", err)
@@ -141,6 +158,47 @@ func (s *Store) UpsertChat(ctx context.Context, jid, name string) error {
 		return fmt.Errorf("store.UpsertChat: %w", err)
 	}
 	return nil
+}
+
+// ApplyEdit updates an existing message's body and flips the edited
+// flag. Called from wa.Handler when a ProtocolMessage MESSAGE_EDIT
+// arrives. No-op for unknown wa_id (the edit might land before the
+// original via out-of-order delivery).
+func (s *Store) ApplyEdit(ctx context.Context, waID, newBody string) error {
+	if waID == "" {
+		return fmt.Errorf("store.ApplyEdit: waID is required")
+	}
+	_, err := s.db.ExecContext(ctx,
+		`UPDATE messages SET body = ?, edited = 1 WHERE wa_id = ?`,
+		nullableString(newBody), waID)
+	if err != nil {
+		return fmt.Errorf("store.ApplyEdit: %w", err)
+	}
+	return nil
+}
+
+// ApplyRevoke flips the revoked flag for the message. Called from
+// wa.Handler when a ProtocolMessage REVOKE arrives. The body is
+// preserved on disk (the user can still see what was said, if we
+// chose to surface it); the UI renders a placeholder when revoked=1.
+func (s *Store) ApplyRevoke(ctx context.Context, waID string) error {
+	if waID == "" {
+		return fmt.Errorf("store.ApplyRevoke: waID is required")
+	}
+	_, err := s.db.ExecContext(ctx,
+		`UPDATE messages SET revoked = 1 WHERE wa_id = ?`, waID)
+	if err != nil {
+		return fmt.Errorf("store.ApplyRevoke: %w", err)
+	}
+	return nil
+}
+
+// boolToInt: SQLite has no real bool; we store 0/1 in INTEGER columns.
+func boolToInt(b bool) int {
+	if b {
+		return 1
+	}
+	return 0
 }
 
 // UpdateStatus sets messages.status by wa_id. Status transitions are

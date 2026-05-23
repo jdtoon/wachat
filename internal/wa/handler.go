@@ -20,6 +20,11 @@ type MessageEvent struct {
 	TS        int64 // unix millis
 	Body      string
 	FromMe    bool
+
+	// Reply info — set when ContextInfo.QuotedMessage was present.
+	QuotedWAID   string
+	QuotedBody   string
+	QuotedSender string
 }
 
 // Persister is the subset of *store.Store the handler needs. Defined as
@@ -65,11 +70,14 @@ func (h *Handler) OnMessage(ctx context.Context, ev MessageEvent) error {
 	// Step 1: persist. We bump the chat's unread counter only for incoming
 	// messages — messages we sent should not mark themselves unread.
 	_, err := h.Store.Insert(ctx, store.Message{
-		WAID:      ev.WAID,
-		ChatJID:   ev.ChatJID,
-		SenderJID: ev.SenderJID,
-		TS:        ev.TS,
-		Body:      ev.Body,
+		WAID:         ev.WAID,
+		ChatJID:      ev.ChatJID,
+		SenderJID:    ev.SenderJID,
+		TS:           ev.TS,
+		Body:         ev.Body,
+		QuotedWAID:   ev.QuotedWAID,
+		QuotedBody:   ev.QuotedBody,
+		QuotedSender: ev.QuotedSender,
 	}, !ev.FromMe)
 	if err != nil {
 		return fmt.Errorf("wa.Handler.OnMessage: persist: %w", err)
@@ -124,6 +132,14 @@ func (h *Handler) Adapter(ctx context.Context, ownJIDFn func() string) whatsmeow
 	return func(evt any) {
 		switch e := evt.(type) {
 		case *events.Message:
+			// Protocol messages (edits, revokes, etc.) come wrapped in
+			// a regular events.Message — they don't have a separate
+			// event type. Detect them up front so we don't try to
+			// persist a "new message" for an edit.
+			if pm := e.Message.GetProtocolMessage(); pm != nil {
+				h.handleProtocol(ctx, pm)
+				return
+			}
 			if err := h.OnMessage(ctx, fromWMMessage(e)); err != nil && h.Logger != nil {
 				h.Logger(err)
 			}
@@ -193,12 +209,16 @@ func (h *Handler) publishState(s ConnectionState) {
 // fromWMMessage maps the whatsmeow event onto wachat's normalized struct.
 // Kept package-private so the conversion stays inside the wa boundary.
 func fromWMMessage(e *events.Message) MessageEvent {
+	qWAID, qBody, qSender := extractQuoted(e.Message)
 	return MessageEvent{
-		WAID:      e.Info.ID,
-		ChatJID:   e.Info.Chat.String(),
-		SenderJID: e.Info.Sender.String(),
-		TS:        e.Info.Timestamp.UnixMilli(),
-		Body:      extractBody(e.Message),
-		FromMe:    e.Info.IsFromMe,
+		WAID:         e.Info.ID,
+		ChatJID:      e.Info.Chat.String(),
+		SenderJID:    e.Info.Sender.String(),
+		TS:           e.Info.Timestamp.UnixMilli(),
+		Body:         extractBody(e.Message),
+		FromMe:       e.Info.IsFromMe,
+		QuotedWAID:   qWAID,
+		QuotedBody:   qBody,
+		QuotedSender: qSender,
 	}
 }
