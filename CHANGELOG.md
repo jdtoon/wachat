@@ -9,6 +9,53 @@ to [Semantic Versioning][semver].
 
 (nothing yet)
 
+## [0.2.0] - 2026-05-23
+
+**Phase 2 milestone.** `wachat` is now a credible daily-driver
+WhatsApp Desktop replacement: pair, history, send, search, replies,
+reactions, edits, deletes, pins, mutes, archive, typing indicators,
+images, link previews, *and* desktop toasts + starred messages.
+
+### Added
+
+- **Desktop notifications** via `github.com/gen2brain/beeep`
+  (pure-Go on Windows; native APIs on macOS/Linux). Toasts fire
+  only when the chat is not currently selected AND not muted.
+- **Starred messages.** New `messages.starred` column with
+  transparent migration. `store.SetStarred` / `ListStarred`. The
+  bubble meta row shows ★ in accent when a message is starred.
+- `internal/notify` package — small wrapper so the call site stays
+  portable.
+
+### What's in Phase 2 now
+
+- Messaging: text + reactions + replies/edits/revoke (receive) +
+  group sender labels + receipts (✓ ✓✓ blue ✓✓) + starred.
+- Media: images with decode-on-visible thumbnails (LRU-capped),
+  voice/doc/sticker media pills, link preview cards.
+- Chats: pin/mute/archive with 📌/🔇 glyphs, unread emphasis,
+  newest-at-bottom rendering, virtualization throughout.
+- Pairing: in-window QR, fan-out to terminal, post-pair refresh,
+  auto-reconnect, history sync persistence, push-name resolution.
+- App-state: typing indicator, connection banner.
+- Quality of life: dark/light toggle, density, narrow-window
+  collapse, persisted settings, full-text search (FTS5) with
+  jump-to-message.
+
+### What's still on the v0.2.x list
+
+- @mentions render highlight + compose autocomplete.
+- Send-side context menu (right-click → reply, react, edit, delete,
+  forward, star, copy).
+- Presence / last-seen.
+- Group management UI.
+- Emoji picker.
+- System tray icon.
+- Voice playback + full-resolution media viewer.
+- Sticker decode (WebP).
+
+[0.2.0]: https://github.com/jdtoon/wachat/releases/tag/v0.2.0
+
 ## [0.1.9] - 2026-05-23
 
 ### Added
@@ -511,7 +558,7 @@ media-cache framework is ready to wire into the message bubble.
 - `CGO_ENABLED=0` confirmed via `go version -m wachat`
 - UI goroutine never receives DB writes from background goroutines
 
-[unreleased]: https://github.com/jdtoon/wachat/compare/v0.1.9...HEAD
+[unreleased]: https://github.com/jdtoon/wachat/compare/v0.2.0...HEAD
 [0.0.1]: https://github.com/jdtoon/wachat/releases/tag/v0.0.1
 [kac]: https://keepachangelog.com/en/1.1.0/
 [semver]: https://semver.org/spec/v2.0.0.html
