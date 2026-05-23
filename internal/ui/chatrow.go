@@ -5,6 +5,7 @@ import (
 	"image/color"
 	"time"
 
+	"gioui.org/font"
 	"gioui.org/layout"
 	"gioui.org/op"
 	"gioui.org/op/clip"
@@ -41,12 +42,19 @@ func layoutChatRow(gtx layout.Context, th *Theme, c ChatSummary) layout.Dimensio
 			layout.Rigid(layout.Spacer{Width: th.Spacing.M}.Layout),
 
 			// Name + subtitle stack, flexed to take remaining space.
+			// Unread rows bold the name and use a stronger preview
+			// color so the eye finds them quickly.
 			layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
 				name := material.Label(mat, th.Type.Title, displayName(c))
 				name.Color = th.Palette.TextPrimary
 				name.MaxLines = 1
 				sub := material.Label(mat, th.Type.Meta, chatSubtitle(c))
-				sub.Color = th.Palette.TextSecondary
+				if c.Unread > 0 {
+					name.Font.Weight = font.SemiBold
+					sub.Color = th.Palette.TextPrimary
+				} else {
+					sub.Color = th.Palette.TextSecondary
+				}
 				sub.MaxLines = 1
 				return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
 					layout.Rigid(name.Layout),

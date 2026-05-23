@@ -376,13 +376,25 @@ func (v *View) layoutMessages(gtx layout.Context, th *Theme, st *State) layout.D
 	groups := GroupMessages(st.Messages, DefaultGroupWindow)
 	count := len(st.Messages)
 	ownJID := st.OwnJID
+	isGroup := IsGroup(st.SelectedChat)
 	return material.List(mat, &v.msgList).Layout(gtx, count, func(gtx layout.Context, i int) layout.Dimensions {
 		// Reverse the index so newest sits at the bottom of the viewport.
 		idx := count - 1 - i
 		m := st.Messages[idx]
 		group := groups[idx]
 		fromMe := isFromMe(m, ownJID)
-		return layoutBubble(gtx, th, m, group, fromMe)
+		// Sender label: only in group chats, only for received
+		// messages (we know who sent ours), only on the first bubble
+		// of a sender run (handled inside layoutBubble).
+		senderLabel := ""
+		if isGroup && !fromMe && m.SenderJID != "" {
+			if name := st.NameFor(m.SenderJID); name != "" {
+				senderLabel = name
+			} else {
+				senderLabel = m.SenderJID
+			}
+		}
+		return layoutBubble(gtx, th, m, group, fromMe, senderLabel)
 	})
 }
 

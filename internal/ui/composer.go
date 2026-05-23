@@ -76,12 +76,22 @@ func (c *Composer) Layout(gtx layout.Context, th *Theme, onSend func(body string
 			Left: th.Spacing.M, Right: th.Spacing.M,
 		}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 			return layout.Flex{Axis: layout.Horizontal, Alignment: layout.End}.Layout(gtx,
-				// Multiline editor, flexed to take remaining width.
+				// Editor wrapped in a rounded Canvas-tinted box so it
+				// visually reads as an interactive input area against
+				// the composer's Surface bar.
 				layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
-					ed := material.Editor(mat, &c.editor, "Type a message")
-					ed.Color = th.Palette.TextPrimary
-					ed.HintColor = th.Palette.TextSecondary
-					return ed.Layout(gtx)
+					return roundedFill(gtx, th.Palette.Canvas, th.Radius.Button, func(gtx layout.Context) layout.Dimensions {
+						return layout.Inset{
+							Top: th.Spacing.S, Bottom: th.Spacing.S,
+							Left: th.Spacing.M, Right: th.Spacing.M,
+						}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+							ed := material.Editor(mat, &c.editor, "Type a message")
+							ed.Color = th.Palette.TextPrimary
+							ed.HintColor = th.Palette.TextSecondary
+							ed.TextSize = th.Type.Body
+							return ed.Layout(gtx)
+						})
+					})
 				}),
 				layout.Rigid(layout.Spacer{Width: th.Spacing.M}.Layout),
 				// Send button: rounded accent pill with a single arrow glyph.

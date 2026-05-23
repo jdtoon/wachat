@@ -301,6 +301,25 @@ func (st *State) AddOptimistic(ctx context.Context, waID, chatJID, body string, 
 	return nil
 }
 
+// NameFor returns the display name persisted for jid, or "" if we
+// haven't seen one yet. Used by the message bubble code to render
+// sender labels in group chats — we look up each sender JID's
+// chat-row name (which is populated from push names + history sync).
+func (st *State) NameFor(jid string) string {
+	for i := range st.Chats {
+		if st.Chats[i].JID == jid {
+			return st.Chats[i].Name
+		}
+	}
+	return ""
+}
+
+// IsGroup reports whether chatJID is a group JID. WhatsApp groups all
+// use the @g.us server suffix.
+func IsGroup(chatJID string) bool {
+	return strings.HasSuffix(chatJID, "@g.us")
+}
+
 // MarkSelectedRead clears the unread counter on the selected chat both in
 // the store and in the view-model. Called when the user has visibly read
 // the messages in the open conversation.

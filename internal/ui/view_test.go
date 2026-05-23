@@ -286,7 +286,7 @@ func TestView_MessagesRenderNewestAtBottom(t *testing.T) {
 	_ = material.List(mat, &v.msgList).Layout(gtx, count, func(gtx layout.Context, i int) layout.Dimensions {
 		idx := count - 1 - i
 		seen[i] = st.Messages[idx].WAID
-		return layoutBubble(gtx, th, st.Messages[idx], groups[idx], false)
+		return layoutBubble(gtx, th, st.Messages[idx], groups[idx], false, "")
 	})
 
 	if len(seen) == 0 {

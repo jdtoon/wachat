@@ -26,7 +26,11 @@ import (
 // (matches cmd/seed and the wa.Handler convention). When v0.0.4 lands
 // real outbound messages we'll set this off `store.Message.SenderJID`
 // against the device's own JID.
-func layoutBubble(gtx layout.Context, th *Theme, m store.Message, group GroupPosition, fromMe bool) layout.Dimensions {
+//
+// senderLabel, if non-empty, is rendered above the bubble for the
+// head of a sender group (or solo bubble) — used by group chats to
+// distinguish participants. Pass "" for 1:1 chats.
+func layoutBubble(gtx layout.Context, th *Theme, m store.Message, group GroupPosition, fromMe bool, senderLabel string) layout.Dimensions {
 	mat := th.Material()
 	bg := th.Palette.BubbleRecv
 	align := layout.W
@@ -65,13 +69,28 @@ func layoutBubble(gtx layout.Context, th *Theme, m store.Message, group GroupPos
 				}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 					body := material.Label(mat, th.Type.Body, m.Body)
 					body.Color = th.Palette.TextPrimary
-					return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
+
+					children := []layout.FlexChild{}
+					// Sender label only on the FIRST bubble of a sender
+					// run (Head or Solo) — middle/tail share the same
+					// sender and don't need it repeated.
+					if senderLabel != "" && (group == GroupHead || group == GroupSolo) {
+						lbl := material.Label(mat, th.Type.Label, senderLabel)
+						lbl.Color = senderLabelColor(senderLabel, th)
+						lbl.MaxLines = 1
+						children = append(children,
+							layout.Rigid(lbl.Layout),
+							layout.Rigid(layout.Spacer{Height: th.Spacing.XXS}.Layout),
+						)
+					}
+					children = append(children,
 						layout.Rigid(body.Layout),
 						layout.Rigid(layout.Spacer{Height: th.Spacing.XXS}.Layout),
 						layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 							return layoutBubbleMeta(gtx, th, m, fromMe)
 						}),
 					)
+					return layout.Flex{Axis: layout.Vertical}.Layout(gtx, children...)
 				})
 			})
 		})
@@ -140,6 +159,24 @@ func layoutBubbleMeta(gtx layout.Context, th *Theme, m store.Message, fromMe boo
 		layout.Rigid(layout.Spacer{Width: th.Spacing.XS}.Layout),
 		layout.Rigid(tick.Layout),
 	)
+}
+
+// senderLabelColor picks a deterministic hue per sender name so each
+// participant in a group is visually distinct (cheap, no images). We
+// reuse the same hash strategy as avatar tints so a person's bubble
+// label and chat-row avatar share a color family.
+func senderLabelColor(name string, th *Theme) color.NRGBA {
+	// Hash the name to a hue and saturate it more strongly than
+	// avatars (which sit behind text and need to stay subtle).
+	const offset = 14695981039346656037
+	const prime = 1099511628211
+	h := uint64(offset)
+	for i := 0; i < len(name); i++ {
+		h ^= uint64(name[i])
+		h *= prime
+	}
+	hue := float64(h%360) / 360.0
+	return hsvToRGB(hue, 0.55, 0.50)
 }
 
 // receiptGlyph returns the tick glyph + whether the accent color
