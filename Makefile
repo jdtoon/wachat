@@ -67,6 +67,9 @@ build: ## build a stripped release binary
 run: ## go run the app
 	$(GO) run .
 
+bench: ## seed a 100k-msg DB and print perf numbers
+	$(GO) run ./cmd/bench
+
 clean: ## remove build artifacts and local state
 	rm -f $(BINARY) $(BINARY).exe coverage.out coverage.html
 	rm -f wachat.db wachat.db-journal wachat.db-wal wachat.db-shm
