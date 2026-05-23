@@ -13,11 +13,9 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"path/filepath"
 
 	"gioui.org/app"
 	"gioui.org/font/gofont"
-	"gioui.org/layout"
 	"gioui.org/op"
 	"gioui.org/text"
 	"gioui.org/unit"
@@ -72,6 +70,7 @@ func run(dbPath string) error {
 	if err := state.LoadChats(ctx); err != nil {
 		return fmt.Errorf("load chats: %w", err)
 	}
+	view := ui.NewView()
 
 	// Window. Title + reasonable default size. Resizable; no MinSize for now.
 	w := new(app.Window)
@@ -91,6 +90,18 @@ func run(dbPath string) error {
 		Notify: w.Invalidate,
 	}
 
+	// View callbacks translate UI events back into state mutations. The
+	// SelectChat path does a small keyset read (~1ms over 100k history per
+	// our bench) on the UI goroutine — well under one frame. We will move
+	// the load off the UI goroutine if measurement ever shows it costs.
+	callbacks := ui.ViewCallbacks{
+		OnSelectChat: func(jid string) {
+			if err := state.SelectChat(ctx, jid); err != nil {
+				log.Println("SelectChat:", err)
+			}
+		},
+	}
+
 	// Theme. material.NewTheme is zero-arg in v0.10; the shaper is set on
 	// the returned value.
 	theme := material.NewTheme()
@@ -107,7 +118,7 @@ func run(dbPath string) error {
 			return ev.Err
 		case app.FrameEvent:
 			gtx := app.NewContext(&ops, ev)
-			renderPlaceholder(gtx, theme, state, dbPath)
+			view.Layout(gtx, theme, state, callbacks)
 			ev.Frame(gtx.Ops)
 		}
 	}
@@ -124,13 +135,4 @@ func drainIncoming(in <-chan wa.MessageEvent, st *ui.State) {
 			return
 		}
 	}
-}
-
-// renderPlaceholder draws a centered banner showing the loaded chat count
-// and the DB path. It is the temporary draw target until the two-pane
-// chat list / messages layout lands in the next commit.
-func renderPlaceholder(gtx layout.Context, th *material.Theme, st *ui.State, dbPath string) {
-	abs, _ := filepath.Abs(dbPath)
-	msg := fmt.Sprintf("wachat — %d chats loaded\n%s", len(st.Chats), abs)
-	layout.Center.Layout(gtx, material.H5(th, msg).Layout)
 }
